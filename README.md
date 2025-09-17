@@ -24,17 +24,17 @@ source install/setup.bash
 ```
 
 ## Executing Launch Files
-The first launch file is cave_explorer_startup.launch.py, which launches the Gazebo simulator containing the robot and cave world, as well as the RVIZ visualisation window.
+The first launch file is `cave_explorer_startup.launch.py`, which launches the Gazebo simulator containing the robot and cave world, as well as the RVIZ visualisation window.
 ```sh
 ros2 launch cave_explorer cave_explorer_startup.launch.py
 ```
 
-The second launch file is cave_explorer_navigation.launch.py, which launches some basic navigation capabilities including mapping and the Nav2 path planner pipeline for navigating around the environment.
+The second launch file is `cave_explorer_navigation.launch.py`, which launches some basic navigation capabilities including mapping and the Nav2 path planner pipeline for navigating around the environment.
 ```sh
 ros2 launch cave_explorer cave_explorer_navigation.launch.py
 ``` 
     
-The third and final launch file is cave_explorer_autonomy.launch.py, which launches the ROS node coded in cave_explorer/cave_explorer.py.
+The third and final launch file is `cave_explorer_autonomy.launch.py`, which launches the ROS node coded in `cave_explorer/cave_explorer.py`.
 ```sh
 ros2 launch cave_explorer cave_explorer_autonomy.launch.py
 ```
