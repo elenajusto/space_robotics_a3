@@ -9,7 +9,7 @@ sudo apt install ros-humble-slam-toolbox ros-humble-navigation2 ros-humble-nav2-
 sudo apt install ros-humble-xacro
 ```
 
-## Setting Environment
+## Set ROS Environment
 ```sh
 source /opt/ros/humble/setup.bash
 ```
