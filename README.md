@@ -29,6 +29,11 @@ The first launch file is `cave_explorer_startup.launch.py`, which launches the G
 ros2 launch cave_explorer cave_explorer_startup.launch.py
 ```
 
+NOTE: Due to some issues with WSL and Gazebo, normal launch may not work and hence you might need to use software rendering, so launch the startup file like this instead:
+```sh
+LIBGL_ALWAYS_SOFTWARE=1 ros2 launch cave_explorer cave_explorer_startup.launch.py
+```
+
 The second launch file is `cave_explorer_navigation.launch.py`, which launches some basic navigation capabilities including mapping and the Nav2 path planner pipeline for navigating around the environment.
 ```sh
 ros2 launch cave_explorer cave_explorer_navigation.launch.py
