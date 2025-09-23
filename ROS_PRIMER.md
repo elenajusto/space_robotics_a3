@@ -262,7 +262,69 @@ Returns:
 ```
 /turtle1/cmd_vel
 ```
+
 ## Services
+Services only provide data when they are specifically called by a client.
+![ros_services](https://docs.ros.org/en/humble/_images/Service-MultipleServiceClient.gif)
+
+Find type of a service:
+```sh
+ros2 service type <service_name>
+```
+
+Example to look at turtlesim's /clear service:
+```sh
+ros2 service type /clear
+```
+Returns:
+```
+std_srvs/srv/Empty
+``
+
+To see the types of all the active services at the same time:
+```sh
+ros2 service list -t
+```
+
+Find all the services of a specific type:
+```sh
+ros2 service find <type_name>
+```
+
+Example to find all empty type services:
+```
+ros2 service find std_srvs/srv/Empty
+```
+Returns:
+```
+/clear
+/reset
+```
+
+Structure of the input arguments for a service type:
+```sh
+ros2 interface show <type_name>
+```
+
+Example inputs for Spawn service:
+```sh
+ros2 interface show turtlesim/srv/Spawn
+```
+Returns:
+```
+float32 x
+float32 y
+float32 theta
+string name # Optional.  A unique name will be created and returned if this is empty
+---
+string name
+```
+
+Can call a service using:
+```sh
+ros2 service call <service_name> <service_type> <arguments>
+```
+
 
 ## Parameters
 
