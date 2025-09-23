@@ -82,7 +82,7 @@ Examples:
 - publishing the sensor data 
 ![ros_node](https://docs.ros.org/en/humble/_images/Nodes-TopicandService.gif)
 
-### Turtleism example
+### Turtleism Example
 Start the main node:
 ```sh
 ros2 run turtlesim turtlesim_node
@@ -101,7 +101,167 @@ ros2 node info <node_name>
 ```
 
 ## Topics
+Topics act as data bus for nodes to exchange messages
+![ros_topics_1](https://docs.ros.org/en/humble/_images/Topic-SinglePublisherandSingleSubscriber.gif)
 
+A node may publish data to any number of topics and simultaneously have subscriptions to any number of topics.
+![ros_topics_2](https://docs.ros.org/en/humble/_images/Topic-MultiplePublisherandMultipleSubscriber.gif)
+
+Topics are one of the main ways in which data is moved between nodes and therefore between different parts of the system.
+
+### Turtleism Example
+Run this in one terminal:
+```sh
+ros2 run turtlesim turtlesim_node
+```
+Run this in another terminal:
+```sh
+ros2 run turtlesim turtle_teleop_key
+```
+
+#### Graphical Introspection
+Run this in another graph to open `rqt` (make sure to deactivate `conda` if needed `conda deactivate`):
+```sh
+ros2 run rqt_graph rqt_graph
+```
+
+![node_graph](images/node_graph.png)
+
+The `/teleop_turtle node` is publishing data (the keystrokes you enter to move the turtle around) to the `/turtle1/cmd_vel topic`, and the `/turtlesim node` is subscribed to that topic to receive the data.
+
+#### Terminal Introspection
+Return a list of all the topics currently active in the system:
+```sh
+ros2 topic list
+```
+Returns:
+```
+/parameter_events
+/rosout
+/turtle1/cmd_vel
+/turtle1/color_sensor
+/turtle1/pose
+```
+Return the same list of topics, this time with the topic type appended in brackets:
+```sh
+ros2 topic list -t
+```
+Returns:
+```
+/parameter_events [rcl_interfaces/msg/ParameterEvent]
+/rosout [rcl_interfaces/msg/Log]
+/turtle1/cmd_vel [geometry_msgs/msg/Twist]
+/turtle1/color_sensor [turtlesim/msg/Color]
+/turtle1/pose [turtlesim/msg/Pose]
+```
+To see this graphically, uncheck hide in `rqt`:
+![node_graph_full](images/node_graph_full.png)
+
+#### See Published Data
+```sh
+ros2 topic echo <topic_name>
+```
+
+Since we know that /teleop_turtle publishes data to /turtlesim over the /turtle1/cmd_vel topic, let’s use echo to introspect that topic:
+```sh
+ros2 topic echo /turtle1/cmd_vel
+```
+Returns:
+```
+linear:
+  x: 2.0
+  y: 0.0
+  z: 0.0
+angular:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+---
+linear:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+angular:
+  x: 0.0
+  y: 0.0
+  z: 2.0
+```
+See a summary of publisher/subscriber counts:
+```sh
+ros2 topic info /turtle1/cmd_vel
+```
+To look at the details of a type of message we use:
+```sh
+ros2 interface show <msg_type>
+```
+For example:
+```sh
+ros2 interface show geometry_msgs/msg/Twist
+```
+Returns:
+```
+# This expresses velocity in free space broken into its linear and angular parts.
+
+Vector3  linear
+        float64 x
+        float64 y
+        float64 z
+Vector3  angular
+        float64 x
+        float64 y
+        float64 z
+```
+Recall this is what we saw being transmitted when we called echo on the topic teleop uses.
+
+Can manually/directly publish data to a topic via command:
+```sh
+ros2 topic pub <topic_name> <msg_type> '<args>'
+```
+Example for turtlesim:
+```sh
+ros2 topic pub /turtle1/cmd_vel geometry_msgs/msg/Twist "{linear: {x: 2.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 1.8}}"
+```
+You can also view the rate at which data is published using:
+```sh
+ros2 topic hz /turtle1/pose
+```
+Returns:
+```sh
+average rate: 62.474
+        min: 0.015s max: 0.017s std dev: 0.00048s window: 64
+average rate: 62.472
+        min: 0.015s max: 0.017s std dev: 0.00050s window: 127
+average rate: 62.497
+        min: 0.015s max: 0.017s std dev: 0.00049s window: 190
+average rate: 6
+```
+The bandwidth used by a topic can be viewed using:
+```sh
+ros2 topic bw /turtle1/pose
+```
+Returns:
+```sh
+Subscribed to [/turtle1/pose]
+1.50 KB/s from 62 messages
+        Message size mean: 0.02 KB min: 0.02 KB max: 0.02 KB
+1.51 KB/s from 100 messages
+        Message size mean: 0.02 KB min: 0.02 KB max: 0.02 KB
+1.50 KB/s from 100 messages
+        Message size mean: 0.02 KB min: 0.02 KB max: 0.02 KB
+1.51 KB/s from 100
+```
+To list a list of available topics of a given type use:
+```sh
+ros2 topic find <topic_type>
+```
+Example:
+```sh
+ros2 topic find geometry_msgs/msg/Twist
+```
+Returns:
+```
+/turtle1/cmd_vel
+```
 ## Services
 
 ## Parameters
