@@ -52,7 +52,7 @@ ros2 run turtlesim turtle_teleop_key
 
 ### Viewing active topics, services and actions
 ```sh
-ros2 nodelist
+ros2 node list
 
 ros2 topic list
 
