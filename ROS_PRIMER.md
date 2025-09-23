@@ -1,4 +1,4 @@
-# ROS Primer
+# ROS Primer - CLI Tools
 Reference notes to understand ROS architecture and components.
 
 ### Setting Up ROS
@@ -325,7 +325,14 @@ Can call a service using:
 ros2 service call <service_name> <service_type> <arguments>
 ```
 
-
 ## Parameters
+A parameter is a configuration value of a node. You can think of parameters as node settings. A node can store parameters as integers, floats, booleans, strings, and lists. In ROS 2, each node maintains its own parameters. 
 
 ## Actions
+Actions are like services that allow you to execute long running tasks, provide regular feedback, and are cancelable.
+
+Example: An action goal could tell a robot to travel to a position. While the robot navigates to the position, it can send updates along the way (i.e. feedback), and then a final result message once it’s reached its destination.
+
+## Launching Nodes
+- Launch files allow you to start up and configure a number of executables containing ROS 2 nodes simultaneously.
+- Running a single launch file with the ros2 launch command will start up your entire system - all nodes and their configurations - at once.
