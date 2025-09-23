@@ -15,11 +15,12 @@ setup(
     zip_safe=True,
     maintainer='elena',
     maintainer_email='elena11j@protonmail.ch',
-    description='TODO: Package description',
+    description='Dummy test package to learn ROS and to gather images from sensor for further processing.',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'listener = camera_processor.camera_processor:main',
         ],
     },
 )

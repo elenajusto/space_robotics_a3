@@ -19,6 +19,9 @@ Tasks are further broken down as follows:
     - Create a python subscriber to listen to the image publisher and to dump the image to a designated image dump every set amount of time.
     - Let the robot do its default autonomous navigation through the cave to collect a baseline set of images. 
 
+- Topics of interest:
+    - `/camera/depth/image [sensor_msgs/msg/Image]`
+    - `/camera/image [sensor_msgs/msg/Image]`
 ### Perception 2: Detect artifacts with computer vision
 - Goal: Create a computer vision model to detect the above artefacts.
 - Can use RGB camera and Depth camera
