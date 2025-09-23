@@ -15,7 +15,9 @@ Tasks are further broken down as follows:
 - Can collect RGB images
 - Can collect depth images
 
-- Idea: Create a python subscriber to listen to the image publisher and to dump the image to a designated image dump every set amount of time.
+- Ideas: 
+    - Create a python subscriber to listen to the image publisher and to dump the image to a designated image dump every set amount of time.
+    - Let the robot do its default autonomous navigation through the cave to collect a baseline set of images. 
 
 ### Perception 2: Detect artifacts with computer vision
 - Goal: Create a computer vision model to detect the above artefacts.
