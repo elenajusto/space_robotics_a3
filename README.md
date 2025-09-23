@@ -15,6 +15,8 @@ Tasks are further broken down as follows:
 - Can collect RGB images
 - Can collect depth images
 
+- Idea: Create a python subscriber to listen to the image publisher and to dump the image to a designated image dump every set amount of time.
+
 ### Perception 2: Detect artifacts with computer vision
 - Goal: Create a computer vision model to detect the above artefacts.
 - Can use RGB camera and Depth camera
