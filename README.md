@@ -15,6 +15,7 @@ Tasks are further broken down as follows:
 - Can collect RGB images
 - Can collect depth images
 
+#### Planning
 - Ideas: 
     - Create a python subscriber to listen to the image publisher and to dump the image to a designated image dump every set amount of time.
     - Let the robot do its default autonomous navigation through the cave to collect a baseline set of images. 
@@ -22,6 +23,17 @@ Tasks are further broken down as follows:
 - Topics of interest:
     - `/camera/depth/image [sensor_msgs/msg/Image]`
     - `/camera/image [sensor_msgs/msg/Image]`
+
+#### Progress 1
+A new node `CameraProcessor` was created as a seperate ROS package to both learn more about ROS based development as well as to achieve the objective of collecting images to serve as training data.
+
+An initial pass was done allowing the defualt random walk model to autonomously explore the cave. Through this, the `CameraProcessor` node listened for images every 3 seconds and saved them to a local folder.
+
+This path taken from this initial pass is seen below:
+![capture_path_1.png](images/capture_path_1.png)
+
+In total `268` images were collected in this first pass.
+
 ### Perception 2: Detect artifacts with computer vision
 - Goal: Create a computer vision model to detect the above artefacts.
 - Can use RGB camera and Depth camera
