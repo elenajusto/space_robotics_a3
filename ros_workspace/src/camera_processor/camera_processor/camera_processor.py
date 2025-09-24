@@ -55,6 +55,9 @@ class CameraProcessor(Node):
         filename = f"camera_image_{timestamp}.jpg"
         filepath = os.path.join(local_image_directory, filename)
 
+        # Make image RGB
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
         # Save image to directory using cv2
         cv2.imwrite(filepath, image)
         print(f"Saved image to {filepath}")
