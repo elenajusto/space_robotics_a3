@@ -7,7 +7,7 @@ import time
 import os
 
 # Configure
-local_image_directory = r"capture_images"
+local_image_directory = r"raw_images"
 
 # This is a custom node which we are using to listen to the camera
 class CameraProcessor(Node):
