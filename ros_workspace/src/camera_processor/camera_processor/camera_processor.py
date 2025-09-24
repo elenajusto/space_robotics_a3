@@ -2,6 +2,12 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+import cv2
+import time
+import os
+
+# Configure
+local_image_directory = r"images"
 
 # This is a custom node which we are using to listen to the camera
 class CameraProcessor(Node):
@@ -19,8 +25,10 @@ class CameraProcessor(Node):
         # Debug statement
         print("Initialised camera_processor")       
 
-    # Method within the custom node that is called when data (image messages) from camera topic is received
     def image_callback(self, msg):
+        '''
+        Method within the custom node that is called when data (image messages) from camera topic is received
+        '''
         
         # Debug statement
         print("Doing the listen...")                
@@ -31,10 +39,27 @@ class CameraProcessor(Node):
         # Debug
         print(image)  # Results: Images are outputted in matrix form
 
+        # Call image_saver
+        self.image_saver(image)
+
     def image_saver(self, image):
-        # TODO: Handle the process of saving an image to local file
-        
-        pass # TODO: Remove when implemented
+        '''
+        Handle the process of saving an image to local file
+        '''
+
+        # Create image directory if needed 
+        os.makedirs(local_image_directory, exist_ok=True) 
+
+        # Create filename with timestamp
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"camera_image_{timestamp}.jpg"
+        filepath = os.path.join(local_image_directory, filename)
+
+        # Save image to directory using cv2
+        cv2.imwrite(filepath, image)
+        print(f"Saved image to {filepath}")
+
+        time.sleep(3)  # Pause execution for 3 seconds
 
 def main(args=None):
     rclpy.init(args=args)
