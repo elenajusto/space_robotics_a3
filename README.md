@@ -103,6 +103,13 @@ The third and final launch file is `cave_explorer_autonomy.launch.py`, which lau
 ros2 launch cave_explorer cave_explorer_autonomy.launch.py
 ```
 
+### New Launch Files
+#### Camera Processor
+This executes the new camera listener node that was created to take in data from the camera sensor.
+```sh
+ros2 run camera_processor listener
+```
+
 # Project Notes
 
 ## return of `ros2 node list`:
