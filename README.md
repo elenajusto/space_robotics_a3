@@ -32,7 +32,7 @@ An initial pass was done allowing the defualt random walk model to autonomously 
 This path taken from this initial pass is seen below:
 ![capture_path_1.png](images/capture_path_1.png)
 
-In total `268` images were collected in this first pass.
+In total `268` images were collected in this first pass. Currently we have only gathered images from the RGB camera and *not* the depth camera.
 
 ### Perception 2: Detect artifacts with computer vision
 - **Goal**: *Create a computer vision model to detect the above artefacts.*
