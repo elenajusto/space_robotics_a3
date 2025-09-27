@@ -30,6 +30,7 @@ A new node `CameraProcessor` was created as a seperate ROS package to both learn
 An initial pass was done allowing the defualt random walk model to autonomously explore the cave. Through this, the `CameraProcessor` node listened for images every 3 seconds and saved them to a local folder.
 
 This path taken from this initial pass is seen below:
+
 ![capture_path_1.png](images/capture_path_1.png)
 
 In total `268` images were collected in this first pass. Currently we have only gathered images from the RGB camera and *not* the depth camera.
@@ -37,6 +38,17 @@ In total `268` images were collected in this first pass. Currently we have only 
 ### Perception 2: Detect artifacts with computer vision
 - **Goal**: *Create a computer vision model to detect the above artefacts.*
 - Can use RGB camera and Depth camera
+
+#### Progress 1
+- Images were manually labelled using LabelStudio
+- Labeled images were exported in yolo campatible format 
+- Executed the yolo training process on a Google Colab runtime environment
+- Saved the trained model, weights and some results
+
+Results from the model trained on the first pass images can be seen below:
+
+![pass_1_model.png](ros_workspace/models/model_1/train/train_batch802.jpg)
+
 
 ### Perception 3: Artifact localisation and display
 - **Goal**: *Estimate the location of the detected artefacts on the world map.*
