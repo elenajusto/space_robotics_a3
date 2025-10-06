@@ -45,9 +45,30 @@ In total `268` images were collected in this first pass. Currently we have only 
 - Executed the yolo training process on a Google Colab runtime environment
 - Saved the trained model, weights and some results
 
+Annotation/labelling of data was done manually on the `268` images collected for the first pass. Example of annotations done can be seen below:
+
+![labelling_process_2.png](images/labelling_process_2.png)
+
+
+![labelling_process_3.png](images/labelling_process_3.png)
+
+Annotated images were then imported into a Google Colab environment and split into training and validation folders.
+
+The `ultralytics` package was installed to the environment's python runtime and training was executed using the command:
+```sh
+!yolo detect train data=/content/data.yaml model=yolo11s.pt epochs=60 imgsz=640
+```
+
+The model was then executed on the validatio nset using the commmand:
+```sh
+!yolo detect predict model=runs/detect/train/weights/best.pt source=data/validation/images save=True
+```
+
 Results from the model trained on the first pass images can be seen below:
 
 ![pass_1_model.png](ros_workspace/models/model_1/train/train_batch802.jpg)
+
+The relevant weights and pytorch model was then downloaded from the Collab environment and stored in this repository as `model_1`.
 
 
 ### Perception 3: Artifact localisation and display
