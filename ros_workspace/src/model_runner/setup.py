@@ -11,7 +11,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'ultralytics'],
     zip_safe=True,
     maintainer='elena',
     maintainer_email='elena11j@protonmail.ch',
@@ -20,7 +20,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'model_runner = model_runner.model_runner:main'
+            'model_runner = model_runner.model_runner:main',
+            'talker = model_runner.publisher_member_function:main',
+            'listener = model_runner.subscriber_member_function:main',
         ],
     },
 )
