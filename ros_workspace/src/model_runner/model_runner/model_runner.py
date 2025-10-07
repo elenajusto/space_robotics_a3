@@ -1,5 +1,7 @@
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
+
 from ultralytics import YOLO
 import cv2
 import numpy as np
@@ -17,7 +19,7 @@ class ModelRunnerNode(Node):
         for item in os.listdir(current_dir):
             self.get_logger().info(f"- {item}")
         
-        # Init the model
+        # Init the YOLO model
         try:
             # Initialize the YOLO model with explicit path
             model_path = "src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory
@@ -31,25 +33,31 @@ class ModelRunnerNode(Node):
             # Test if model attributes are accessible
             self.get_logger().info(f"Model task type: {self.model.task}")
             self.get_logger().info(f"Model names: {self.model.names if hasattr(self.model, 'names') else 'No names available'}")
-            
         except Exception as e:
             self.get_logger().error(f'Error loading model: {str(e)}')
             raise 
 
+        # Subscriptions
+        self.subscription = self.create_subscription(
+            String,
+            'topic',
+            self.listener_callback,
+            10)
+        self.subscription  # prevent unused variable warning
+        
+    def listener_callback(self, msg):
+        # As a test listen to our minal publisher
+        self.get_logger().info('I heard: "%s"' % msg.data)
 
 def main(args=None):
     rclpy.init(args=args)
+
+    # Run indefinitely
     node = ModelRunnerNode()
-    
-    # Just keep node alive briefly to see logs
-    try:
-        rclpy.spin_once(node, timeout_sec=2.0)
-    except KeyboardInterrupt:
-        pass
+    rclpy.spin(node)
     
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
