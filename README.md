@@ -155,6 +155,12 @@ This executes the new camera listener node that was created to take in data from
 ros2 run camera_processor listener
 ```
 
+### Model Runner
+This executes a node that handles the loading of a YOLO model (currently has to be configured in source code of this package).
+```sh
+ros2 run model_runner model_runner
+```
+
 # Project Notes
 
 ## model_1 printout
