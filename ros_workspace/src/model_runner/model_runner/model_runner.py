@@ -1,6 +1,8 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 from ultralytics import YOLO
 import cv2
@@ -10,6 +12,10 @@ import os
 class ModelRunnerNode(Node):
     def __init__(self):
         super().__init__('model_runner')
+
+        # Initialise CvBridge
+        self.cv_bridge_ = CvBridge()
+
         self.get_logger().info('ModelRunner started')
         
         # Debug to see where Python is looking for files
@@ -38,16 +44,20 @@ class ModelRunnerNode(Node):
             raise 
 
         # Subscriptions
-        self.subscription = self.create_subscription(
-            String,
-            'topic',
-            self.listener_callback,
-            10)
-        self.subscription  # prevent unused variable warning
-        
+        ## Test subscription
+        self.subscription = self.create_subscription(String, 'topic', self.listener_callback, 10)
+
+        ## Camera sensor subscription
+        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
+
     def listener_callback(self, msg):
         # As a test listen to our minal publisher
         self.get_logger().info('I heard: "%s"' % msg.data)
+
+    def image_callback(self, msg):
+        # Test listen for images
+        image = self.cv_bridge_.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        self.get_logger().info('I heard: "%s"' % image)
 
 def main(args=None):
     rclpy.init(args=args)
