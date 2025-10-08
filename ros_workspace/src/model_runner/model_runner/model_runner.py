@@ -16,38 +16,17 @@ class ModelRunnerNode(Node):
         # Initialise CvBridge
         self.cv_bridge_ = CvBridge()
 
-        self.get_logger().info('ModelRunner started')
-        
-        # Debug to see where Python is looking for files
-        current_dir = os.getcwd()
-        self.get_logger().info(f"Current working directory: {current_dir}")
-        self.get_logger().info("Directory contents:")
-        for item in os.listdir(current_dir):
-            self.get_logger().info(f"- {item}")
-        
-        # Init the YOLO model
-        try:
-            # Initialize the YOLO model with explicit path
-            model_path = "src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory
-            self.get_logger().info(f"Attempting to load model from: {model_path}")
-            
-            self.model = YOLO(model_path)
-            #self.get_logger().info(f"Model loaded successfully: {self.model}") # This will print out the entire model
+        # Publisher
+        self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
+ 
+        # Initialise the YOLO model
+        model_path = "src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
+        self.model = YOLO(model_path)
 
-            self.get_logger().info(f"Model loaded successfully.") # Just a debug statement
-            
-            # Test if model attributes are accessible
-            self.get_logger().info(f"Model task type: {self.model.task}")
-            self.get_logger().info(f"Model names: {self.model.names if hasattr(self.model, 'names') else 'No names available'}")
-        except Exception as e:
-            self.get_logger().error(f'Error loading model: {str(e)}')
-            raise 
-
-        # Subscriptions
-        ## Test subscription
+        # Test subscription
         self.subscription = self.create_subscription(String, 'topic', self.listener_callback, 10)
 
-        ## Camera sensor subscription
+        # Camera sensor subscription
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
 
     def listener_callback(self, msg):
@@ -57,7 +36,49 @@ class ModelRunnerNode(Node):
     def image_callback(self, msg):
         # Test listen for images
         image = self.cv_bridge_.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-        self.get_logger().info('I heard: "%s"' % image)
+
+        # Debug
+        self.get_logger().info('Image detected')
+
+        # Call the yolo model on the image
+        self.execute_model(image)
+
+    def execute_model(self, image):
+        results = self.model(image)
+
+        for result in results:
+
+            # Boxes object for bounding box outputs
+            boxes = result.boxes  
+
+            # Get name of detected object
+            for box in boxes:
+                class_id = int(box.cls)
+                class_name = self.model.names[class_id]
+                self.get_logger().info('class_name: "%s"' % class_name)
+
+            # Get bounding box of detected object
+            number_of_boxes = len(boxes.xywh)
+            if number_of_boxes > 0:
+                for box in range(number_of_boxes):
+                    self.get_logger().info('box: "%s"' % boxes.xywh[box])
+
+                    x = int(boxes.xywh[box][0])
+                    y = int(boxes.xywh[box][1])
+                    width = int(boxes.xywh[box][2])
+                    height = int(boxes.xywh[box][3])
+
+                    self.get_logger().info('x: "%s"' % x)
+                    self.get_logger().info('y: "%s"' % y)
+                    self.get_logger().info('width: "%s"' % width)
+                    self.get_logger().info('height: "%s"' % height)
+
+                    # Draw bounding box
+                    cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+
+                    # Publish the image with the detection bounding boxes
+                    image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
+                    self.image_detections_pub_.publish(image_detection_message)
 
 def main(args=None):
     rclpy.init(args=args)
