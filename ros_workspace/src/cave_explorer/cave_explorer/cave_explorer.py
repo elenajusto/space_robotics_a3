@@ -51,7 +51,8 @@ class PlannerType(Enum):
     GO_TO_FIRST_ARTIFACT = 3
     RANDOM_WALK = 4
     RANDOM_GOAL = 5
-    # Add more!
+
+    FRONTIER_EXPLORATION = 6
 
 
 class CaveExplorer(Node):
@@ -171,6 +172,14 @@ class CaveExplorer(Node):
         # Set current limits
         self.xlim_ = [map_origin[0], map_origin[0]+map_width*map_resolution]
         self.ylim_ = [map_origin[1], map_origin[1]+map_height*map_resolution]
+
+            # Extract map info
+        self.map_origin_ = map_msg.info.origin
+        self.map_resolution_ = map_msg.info.resolution
+        self.map_height_ = map_msg.info.height
+        self.map_width_ = map_msg.info.width
+        self.map_data_ = map_msg.data  # store the occupancy grid values
+
 
         # self.get_logger().warn('Map received:')
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
@@ -430,6 +439,8 @@ class CaveExplorer(Node):
         #######################################################
         # Select the next planner to execute
         # Update this logic as you see fit!
+        self.planner_type_ = PlannerType.FRONTIER_EXPLORATION
+        
         if not self.reached_first_artifact_:
             self.planner_type_ = PlannerType.GO_TO_FIRST_ARTIFACT
         elif not self.returned_home_:
@@ -441,7 +452,10 @@ class CaveExplorer(Node):
         # Execute the planner by calling the relevant method
         # Add your own planners here!
         self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
-        if self.planner_type_ == PlannerType.MOVE_FORWARDS:
+
+        if self.planner_type_ == PlannerType.FRONTIER_EXPLORATION:
+            self.planner_frontier_exploration()
+        elif self.planner_type_ == PlannerType.MOVE_FORWARDS:
             self.planner_move_forwards(10)
         elif self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
             self.planner_go_to_first_artifact()
@@ -458,6 +472,88 @@ class CaveExplorer(Node):
 
         #######################################################
 
+def find_frontiers(self):
+    """Find frontier cells (boundary between known and unknown space)"""
+    if not hasattr(self, 'map_data_'):
+        return []
+
+    width = self.map_width_
+    height = self.map_height_
+    data = self.map_data_
+
+    frontiers = []
+    for y in range(1, height - 1):
+        for x in range(1, width - 1):
+            i = y * width + x
+            if data[i] == 0:  # free space
+                # Check if any neighbor is unknown (-1)
+                neighbors = [
+                    data[(y + dy) * width + (x + dx)]
+                    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                ]
+                if -1 in neighbors:
+                    wx = self.map_origin_.position.x + x * self.map_resolution_
+                    wy = self.map_origin_.position.y + y * self.map_resolution_
+                    frontiers.append((wx, wy))
+    return frontiers
+
+
+def choose_frontier_goal(self, frontiers, robot_pose):
+    """Pick the nearest frontier (simple heuristic)"""
+    if not frontiers:
+        return None
+    best = min(frontiers, key=lambda f: math.hypot(f[0] - robot_pose.x, f[1] - robot_pose.y))
+    return best
+
+def planner_frontier_exploration(self):
+    """Autonomous exploration planner using frontiers"""
+    robot_pose = self.get_pose_2d()
+    if robot_pose is None:
+        self.get_logger().warn("Cannot get robot pose yet.")
+        return
+
+    frontiers = self.find_frontiers()
+
+    if not frontiers:
+        self.get_logger().warn("No frontiers found — maybe fully explored?")
+        self.ready_for_next_goal_ = True
+        return
+
+    # Publish RViz markers for visualisation
+    self.publish_frontier_markers(frontiers)
+
+    # Choose best frontier
+    goal = self.choose_frontier_goal(frontiers, robot_pose)
+
+    if goal:
+        self.get_logger().info(f"Exploring frontier at ({goal[0]:.2f}, {goal[1]:.2f})")
+        goal_pose = Pose2D(x=goal[0], y=goal[1], theta=0.0)
+        self.planner_go_to_pose2d(goal_pose)
+    else:
+        self.get_logger().warn("No valid frontier goal selected.")
+        self.ready_for_next_goal_ = True
+
+def publish_frontier_markers(self, frontiers):
+    """Visualise detected frontier points in RViz"""
+    marker = Marker()
+    marker.header.frame_id = "map"
+    marker.ns = "frontiers"
+    marker.id = 1
+    marker.type = Marker.POINTS
+    marker.action = Marker.ADD
+    marker.scale.x = 0.3
+    marker.scale.y = 0.3
+    marker.color.a = 1.0
+    marker.color.r = 0.0
+    marker.color.g = 0.0
+    marker.color.b = 1.0
+    marker.points = [Point(x=f[0], y=f[1], z=0.0) for f in frontiers]
+
+    marker_array = MarkerArray()
+    marker_array.markers = [marker]
+    self.marker_pub_.publish(marker_array)
+
+
 def main():
     # Initialise
     rclpy.init()
@@ -467,3 +563,26 @@ def main():
 
     while rclpy.ok():
         rclpy.spin(cave_explorer)
+
+#######################################################
+# Select the next planner to execute
+
+self.planner_type_ = PlannerType.FRONTIER_EXPLORATION
+#######################################################
+# Execute the planner
+self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
+if self.planner_type_ == PlannerType.FRONTIER_EXPLORATION:
+    self.planner_frontier_exploration()
+elif self.planner_type_ == PlannerType.MOVE_FORWARDS:
+    self.planner_move_forwards(10)
+elif self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
+    self.planner_go_to_first_artifact()
+elif self.planner_type_ == PlannerType.RETURN_HOME:
+    self.planner_return_home()
+elif self.planner_type_ == PlannerType.RANDOM_WALK:
+    self.planner_random_walk()
+elif self.planner_type_ == PlannerType.RANDOM_GOAL:
+    self.planner_random_goal()
+else:
+    self.get_logger().error('No valid planner selected')
+    self.destroy_node()
