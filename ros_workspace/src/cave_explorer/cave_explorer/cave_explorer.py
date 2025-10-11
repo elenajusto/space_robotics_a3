@@ -117,10 +117,10 @@ class CaveExplorer(Node):
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
         # Prepare image processing
-        self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
-        self.declare_parameter('computer_vision_model_filename', rclpy.Parameter.Type.STRING)
-        self.computer_vision_model_ = cv2.CascadeClassifier(self.get_parameter('computer_vision_model_filename').value)
-        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
+        #self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
+        #self.declare_parameter('computer_vision_model_filename', rclpy.Parameter.Type.STRING)
+        #self.computer_vision_model_ = cv2.CascadeClassifier(self.get_parameter('computer_vision_model_filename').value)
+        #self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
 
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)

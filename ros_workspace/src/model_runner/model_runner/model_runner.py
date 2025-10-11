@@ -60,13 +60,13 @@ class ModelRunnerNode(Node):
             # Get bounding box of detected object
             number_of_boxes = len(boxes.xywh)
             if number_of_boxes > 0:
-                for box in range(number_of_boxes):
-                    self.get_logger().info('box: "%s"' % boxes.xywh[box])
+                for i in range(number_of_boxes):
+                    self.get_logger().info('box: "%s"' % boxes.xywh[i])
 
-                    x = int(boxes.xywh[box][0])
-                    y = int(boxes.xywh[box][1])
-                    width = int(boxes.xywh[box][2])
-                    height = int(boxes.xywh[box][3])
+                    x = int(boxes.xywh[i][0])
+                    y = int(boxes.xywh[i][1])
+                    width = int(boxes.xywh[i][2])
+                    height = int(boxes.xywh[i][3])
 
                     self.get_logger().info('x: "%s"' % x)
                     self.get_logger().info('y: "%s"' % y)
@@ -76,7 +76,12 @@ class ModelRunnerNode(Node):
                     # Draw bounding box
                     cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
 
-                    # Publish the image with the detection bounding boxes
+                    # Add text with class name above the bounding box
+                    class_id = int(boxes.cls[i])
+                    class_name = self.model.names[class_id]
+                    cv2.putText(image, class_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+                    # Publish the image with the detection bounding boxes and labels
                     image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
                     self.image_detections_pub_.publish(image_detection_message)
 
