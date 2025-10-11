@@ -20,7 +20,6 @@ from tf2_ros.transform_listener import TransformListener
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
-
 def wrap_angle(angle):
     """Function to wrap an angle between 0 and 2*Pi"""
     while angle < 0.0:
@@ -43,7 +42,6 @@ def pose2d_to_pose(pose_2d):
 
     return pose
 
-
 class PlannerType(Enum):
     ERROR = 0
     MOVE_FORWARDS = 1
@@ -52,7 +50,6 @@ class PlannerType(Enum):
     RANDOM_WALK = 4
     RANDOM_GOAL = 5
     # Add more!
-
 
 class CaveExplorer(Node):
     def __init__(self):
@@ -223,7 +220,6 @@ class CaveExplorer(Node):
             self.get_logger().info('Artifact found!')
             self.localise_artifact()
 
-
     def localise_artifact(self):
         """
         INCOMPLETE:
@@ -263,7 +259,6 @@ class CaveExplorer(Node):
         marker_array = MarkerArray()
         marker_array.markers = [self.marker_artifacts_]
         self.marker_pub_.publish(marker_array)
-
 
     def planner_go_to_pose2d(self, pose2d):
         """Go to a provided 2d pose"""
@@ -316,7 +311,6 @@ class CaveExplorer(Node):
         result = future.result().result
         self.get_logger().info(f'Goal reached!')
         self.ready_for_next_goal_ = True
-
 
     def planner_move_forwards(self, distance):
         """Simply move forward by the specified distance"""
