@@ -76,10 +76,12 @@ class ModelRunnerNode(Node):
                     # Draw bounding box
                     cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
 
-                    # Add text with class name above the bounding box
+                    # Add text with class name and confidence score above the bounding box
                     class_id = int(boxes.cls[i])
+                    confidence = float(boxes.conf[i])
                     class_name = self.model.names[class_id]
-                    cv2.putText(image, class_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    label = f"{class_name} {confidence:.2%}"  # Format confidence as percentage
+                    cv2.putText(image, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
                     # Publish the image with the detection bounding boxes and labels
                     image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
