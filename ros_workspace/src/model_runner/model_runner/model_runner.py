@@ -44,7 +44,7 @@ class ModelRunnerNode(Node):
         self.execute_model(image)
 
     def execute_model(self, image):
-        results = self.model(image)
+        results = self.model(image, stream=True)
 
         for result in results:
 
