@@ -3,6 +3,8 @@
 import math
 import random
 from enum import Enum
+import numpy as np
+from scipy.ndimage import label, center_of_mass
 
 import cv2  # OpenCV2
 import rclpy
@@ -131,9 +133,13 @@ class CaveExplorer(Node):
 
         # Parameter for navigation type
 
-        self.declare_parameter('planner_type', 'frontier')
+        self.declare_parameter('planner_type', 'random_goal')
         planner_value = self.get_parameter('planner_type').value
         self.get_logger().info(f'Planner parameter initialised as: {planner_value}')
+
+        self.current_goal_ = None
+        self.ready_for_next_goal_ = True
+
 
 
     
@@ -237,7 +243,7 @@ class CaveExplorer(Node):
         self.image_detections_pub_.publish(image_detection_message)
 
         if self.artifact_found_:
-            self.get_logger().info('Artifact found! ')
+            self.get_logger().info('Artifact found! ELEANOR')
             self.localise_artifact()
 
 
@@ -319,6 +325,8 @@ class CaveExplorer(Node):
         self.get_logger().warn(f'Goal accepted')
         self.get_result_future_ = goal_handle.get_result_async()
         self.get_result_future_.add_done_callback(self.goal_reached_callback)
+
+
 
     def feedback_callback(self, feedback_msg):
         """Monitor the feedback from the action server"""
@@ -473,113 +481,84 @@ class CaveExplorer(Node):
             self.get_logger().error('No valid planner selected')
             self.destroy_node()
 
-        # # Don't do anything until SLAM is launched
-        # if not self.tf_buffer.can_transform(
-        #         'map',
-        #         'base_link',
-        #         rclpy.time.Time()):
-        #     self.get_logger().warn('Waiting for transform... Have you launched a SLAM node?')
-        #     return
-
-        # #######################################################
-        # # Update flags related to the progress of the current planner
-
-        # print(self.planner_type_)
-
-        # # Check if previous goal still running
-        # if not self.ready_for_next_goal_:
-        #     # self.get_logger().info(f'Previous goal still running')
-        #     return
-
-        # self.ready_for_next_goal_ = False
-
-        # if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
-        #     self.get_logger().info('Successfully reached first artifact!')
-        #     self.reached_first_artifact_ = True
-        # if self.planner_type_ == PlannerType.RETURN_HOME:
-        #     self.get_logger().info('Successfully returned home!')
-        #     self.returned_home_ = True
-
-        # #######################################################
-        # # Select the next planner to execute
-        # # Update this logic as you see fit!
-        # # self.planner_type_ = PlannerType.FRONTIER_EXPLORATION
-
-        # planner_str = self.get_parameter('planner_type').value
-        # if planner_str == 'frontier':
-        #     self.planner_type_ = PlannerType.FRONTIER_EXPLORATION
-        # elif planner_str == 'random':
-        #     self.planner_type_ = PlannerType.RANDOM_GOAL
-        # elif not self.reached_first_artifact_:
-        #     self.planner_type_ = PlannerType.GO_TO_FIRST_ARTIFACT
-        # elif not self.returned_home_:
-        #     self.planner_type_ = PlannerType.RETURN_HOME
-        # else:
-        #     self.planner_type_ = PlannerType.RANDOM_GOAL
-
-        
-        # #######################################################
-        # # Execute the planner by calling the relevant method
-        # # Add your own planners here!
-        
-        
-        # self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
-
-        # if self.planner_type_ == PlannerType.FRONTIER_EXPLORATION:
-        #     self.planner_frontier_exploration()
-        # elif self.planner_type_ == PlannerType.MOVE_FORWARDS:
-        #     self.planner_move_forwards(10)
-        # elif self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
-        #     self.planner_go_to_first_artifact()
-        # elif self.planner_type_ == PlannerType.RETURN_HOME:
-        #     self.planner_return_home()
-        # elif self.planner_type_ == PlannerType.RANDOM_WALK:
-        #     self.planner_random_walk()
-        # elif self.planner_type_ == PlannerType.RANDOM_GOAL:
-        #     self.planner_random_goal()
-        # else:
-        #     self.get_logger().error('No valid planner selected')
-        #     self.destroy_node()
-
-
-        #######################################################
 
     def find_frontiers(self):
-        """Find frontier cells (boundary between known and unknown space)"""
+        """Find clusters of frontier cells and return their centroids as candidate goals."""
         if not hasattr(self, 'map_data_'):
+            self.get_logger().debug("No map data yet.")
             return []
 
         width = self.map_width_
         height = self.map_height_
-        data = self.map_data_
+        data = np.array(self.map_data_, dtype=np.int8).reshape((height, width))
 
-        frontiers = []
+        # 1️⃣ Frontier mask: free cells adjacent to unknown
+        frontier_mask = np.zeros_like(data, dtype=bool)
         for y in range(1, height - 1):
             for x in range(1, width - 1):
-                i = y * width + x
-                if data[i] == 0:  # free space
-                    # Check if any neighbor is unknown (-1)
-                    neighbors = [
-                        data[(y + dy) * width + (x + dx)]
-                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
-                    ]
-                    if -1 in neighbors:
-                        wx = self.map_origin_.position.x + x * self.map_resolution_
-                        wy = self.map_origin_.position.y + y * self.map_resolution_
-                        frontiers.append((wx, wy))
-        return frontiers
+                if data[y, x] == 0:  # Free space
+                    # Check 8-neighbors for unknown
+                    if np.any(data[y-1:y+2, x-1:x+2] == -1):
+                        frontier_mask[y, x] = True
+
+        # 2️⃣ Label contiguous frontier regions
+        structure = np.ones((3, 3), dtype=int)
+        labeled, num_features = label(frontier_mask, structure=structure)
+        if num_features == 0:
+            self.get_logger().debug("No frontier clusters found.")
+            return []
+
+        # 3️⃣ Compute cluster centroids (in map coordinates)
+        centroids = []
+        for i in range(1, num_features + 1):
+            com = center_of_mass(frontier_mask, labels=labeled, index=i)
+            if np.isnan(com[0]):
+                continue
+
+            # Convert pixel → world coordinates
+            wy = self.map_origin_.position.y + com[0] * self.map_resolution_
+            wx = self.map_origin_.position.x + com[1] * self.map_resolution_
+            centroids.append((wx, wy))
+
+        self.get_logger().info(f"Found {num_features} frontier clusters.")
+        return centroids
 
 
-    def choose_frontier_goal(self, frontiers, robot_pose):
-        """Pick the nearest frontier (simple heuristic)"""
+    def choose_frontier_goal(self, frontiers, robot_pose, min_dist=0.5):
+        """Select the best frontier based on distance and information gain."""
         if not frontiers:
             return None
-        best = min(frontiers, key=lambda f: math.hypot(f[0] - robot_pose.x, f[1] - robot_pose.y))
-        return best
+
+        best_score = float('-inf')
+        best_frontier = None
+
+        for f in frontiers:
+            dist = math.hypot(f[0] - robot_pose.x, f[1] - robot_pose.y)
+            if dist < min_dist:
+                continue
+
+            # Score combines closeness (prefer nearer) and exploration potential (favor distant enough)
+            # You can tune weights: closer = faster progress, farther = more new area
+            score = -dist + 1.0 / (1.0 + math.exp(-0.2 * (dist - 1.0)))
+            if score > best_score:
+                best_score = score
+                best_frontier = f
+
+        if best_frontier:
+            self.get_logger().info(
+                f"Chosen frontier: ({best_frontier[0]:.2f}, {best_frontier[1]:.2f}) | score={best_score:.2f}"
+            )
+        else:
+            self.get_logger().warn("No valid frontier goal selected.")
+
+        return best_frontier
 
     def planner_frontier_exploration(self):
-        """Autonomous exploration planner using frontiers"""
-        self.get_logger().info(f'Starting frontier exploration!')
+        """Main frontier exploration loop."""
+        # Skip if still travelling to a goal
+        if not self.ready_for_next_goal_:
+            return
+
         robot_pose = self.get_pose_2d()
         if robot_pose is None:
             self.get_logger().warn("Cannot get robot pose yet.")
@@ -592,22 +571,25 @@ class CaveExplorer(Node):
             self.ready_for_next_goal_ = True
             return
 
-        # Publish RViz markers for visualisation
+        # Publish for RViz visualisation
         self.publish_frontier_markers(frontiers)
 
-        # Choose best frontier
+        # Choose next goal
         goal = self.choose_frontier_goal(frontiers, robot_pose)
-
-        if goal:
-            self.get_logger().info(f"Exploring frontier at ({goal[0]:.2f}, {goal[1]:.2f})")
-            goal_pose = Pose2D(x=goal[0], y=goal[1], theta=0.0)
-            self.planner_go_to_pose2d(goal_pose)
-        else:
-            self.get_logger().warn("No valid frontier goal selected.")
+        if goal is None:
             self.ready_for_next_goal_ = True
+            return
+
+        self.get_logger().info(f"Exploring frontier at ({goal[0]:.2f}, {goal[1]:.2f})")
+
+        goal_pose = Pose2D(x=goal[0], y=goal[1], theta=0.0)
+        self.current_goal_ = goal_pose
+        self.ready_for_next_goal_ = False
+        self.planner_go_to_pose2d(goal_pose)
+
 
     def publish_frontier_markers(self, frontiers):
-        """Visualise detected frontier points in RViz"""
+        """Visualise detected frontier points in RViz."""
         marker = Marker()
         marker.header.frame_id = "map"
         marker.ns = "frontiers"
@@ -625,6 +607,7 @@ class CaveExplorer(Node):
         marker_array = MarkerArray()
         marker_array.markers = [marker]
         self.marker_pub_.publish(marker_array)
+
 
 
 def main():
