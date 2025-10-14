@@ -20,6 +20,8 @@ from tf2_ros.transform_listener import TransformListener
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
+from ultralytics import YOLO
+
 def wrap_angle(angle):
     """Function to wrap an angle between 0 and 2*Pi"""
     while angle < 0.0:
@@ -117,10 +119,10 @@ class CaveExplorer(Node):
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
         # Prepare image processing
-        #self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
-        #self.declare_parameter('computer_vision_model_filename', rclpy.Parameter.Type.STRING)
-        #self.computer_vision_model_ = cv2.CascadeClassifier(self.get_parameter('computer_vision_model_filename').value)
-        #self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
+        self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)            # Publish artefact detections to the visualiser thingy
+        model_path = "src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory        
+        self.model = YOLO(model_path)                                                               # Define YOLO model being used
+        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)  # Listen to camera sensor
 
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
@@ -178,44 +180,65 @@ class CaveExplorer(Node):
         Recieve an RGB image.
         Use this method to detect artifacts of interest.
         
-        A simple method has been provided to begin with for detecting stop signs (which is not what we're actually looking for) 
-        adapted from: https://www.geeksforgeeks.org/detect-an-object-with-opencv-python/
+        Code integrated based on dev and testing done in the `model_runner` package
         """
-    
-        # Copy the image message to a cv image
-        # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
+        # Turn received image into cv format
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
+        
+        # Debug
+        self.get_logger().info('Image received from camera')
+    
+        # Execute computer vision model
+        results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
 
-        # Create a grayscale version (some simple models use this)
-        # image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        # Retrieve the pre-trained model
-        stop_sign_model = self.computer_vision_model_
-
-        # Detect artifacts in the image
-        # The minSize is used to avoid very small detections that are probably noise
-        detections = stop_sign_model.detectMultiScale(image, minSize=(20,20))
-
-        # You can set "artifact_found_" to true to signal to "main_loop" that you have found a artifact
-        # You may want to communicate more information
-        # Since the "image_callback" and "main_loop" methods can run at the same time you should protect any shared variables
-        # with a mutex
-        # "artifact_found_" doesn't need a mutex because it's an atomic
-        num_detections = len(detections)
-
-        if num_detections > 0:
+        if (results):
             self.artifact_found_ = True
-        else:
-            self.artifact_found_ = False
 
-        # Draw a bounding box rectangle on the image for each detection
-        for(x, y, width, height) in detections:
-            cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+        # Process detection
+        for result in results:
+            # Boxes object for bounding box outputs
+            boxes = result.boxes  
 
-        # Publish the image with the detection bounding boxes
+            # Process any detections if they exist
+            number_of_boxes = len(boxes.xywh)
+            if number_of_boxes > 0:
+                # Get name of detected object
+                for box in boxes:
+                    class_id = int(box.cls)
+                    class_name = self.model.names[class_id]
+                    self.get_logger().info('class_name: "%s"' % class_name)
+
+                # Draw bounding boxes and labels
+                for i in range(number_of_boxes):
+                    self.get_logger().info('box: "%s"' % boxes.xywh[i])
+
+                    x = int(boxes.xywh[i][0])
+                    y = int(boxes.xywh[i][1])
+                    width = int(boxes.xywh[i][2])
+                    height = int(boxes.xywh[i][3])
+
+                    self.get_logger().info('x: "%s"' % x)
+                    self.get_logger().info('y: "%s"' % y)
+                    self.get_logger().info('width: "%s"' % width)
+                    self.get_logger().info('height: "%s"' % height)
+
+                    # Draw bounding box
+                    cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+
+                    # Add text with class name and confidence score above the bounding box
+                    class_id = int(boxes.cls[i])
+                    confidence = float(boxes.conf[i])
+                    class_name = self.model.names[class_id]
+                    label = f"{class_name} {confidence:.2%}"  # Format confidence as percentage
+                    cv2.putText(image, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+        # Re-convert processed cv image to ros format
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
+
+        # Publish format
         self.image_detections_pub_.publish(image_detection_message)
 
+        # Set flags
         if self.artifact_found_:
             self.get_logger().info('Artifact found!')
             self.localise_artifact()
