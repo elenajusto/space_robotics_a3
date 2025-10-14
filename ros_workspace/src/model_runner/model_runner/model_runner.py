@@ -38,28 +38,28 @@ class ModelRunnerNode(Node):
         image = self.cv_bridge_.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
         # Debug
-        self.get_logger().info('Image detected')
+        self.get_logger().info('Image received from camera')
 
         # Call the yolo model on the image
         self.execute_model(image)
 
     def execute_model(self, image):
-        results = self.model(image, stream=True)
+        results = self.model(image, stream=True, conf=0.6)
 
         for result in results:
-
             # Boxes object for bounding box outputs
             boxes = result.boxes  
 
-            # Get name of detected object
-            for box in boxes:
-                class_id = int(box.cls)
-                class_name = self.model.names[class_id]
-                self.get_logger().info('class_name: "%s"' % class_name)
-
-            # Get bounding box of detected object
+            # Process any detections if they exist
             number_of_boxes = len(boxes.xywh)
             if number_of_boxes > 0:
+                # Get name of detected object
+                for box in boxes:
+                    class_id = int(box.cls)
+                    class_name = self.model.names[class_id]
+                    self.get_logger().info('class_name: "%s"' % class_name)
+
+                # Draw bounding boxes and labels
                 for i in range(number_of_boxes):
                     self.get_logger().info('box: "%s"' % boxes.xywh[i])
 
@@ -83,9 +83,9 @@ class ModelRunnerNode(Node):
                     label = f"{class_name} {confidence:.2%}"  # Format confidence as percentage
                     cv2.putText(image, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-                    # Publish the image with the detection bounding boxes and labels
-                    image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
-                    self.image_detections_pub_.publish(image_detection_message)
+        # Always publish the image, whether or not there were any detections
+        image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
+        self.image_detections_pub_.publish(image_detection_message)
 
 def main(args=None):
     rclpy.init(args=args)
