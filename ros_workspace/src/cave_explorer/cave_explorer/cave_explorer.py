@@ -512,7 +512,7 @@ class CaveExplorer(Node):
             wy = self.map_origin_.position.y + com[0] * self.map_resolution_
             wx = self.map_origin_.position.x + com[1] * self.map_resolution_
 
-            # 🔍 Check how many unknown cells surround this cluster
+            # Check how many unknown cells surround this cluster
             fx = int((wx - self.map_origin_.position.x) / self.map_resolution_)
             fy = int((wy - self.map_origin_.position.y) / self.map_resolution_)
             r = int(1.0 / self.map_resolution_)  # ~1m radius window
@@ -548,8 +548,6 @@ class CaveExplorer(Node):
             if dist < min_dist:
                 continue
 
-            # Score combines closeness (prefer nearer) and exploration potential (favor distant enough)
-            # You can tune weights: closer = faster progress, farther = more new area
             score = -dist + 1.0 / (1.0 + math.exp(-0.2 * (dist - 1.0)))
             if score > best_score:
                 best_score = score
@@ -568,6 +566,13 @@ class CaveExplorer(Node):
         """Main frontier exploration loop."""
         # Skip if still travelling to a goal
         if not self.ready_for_next_goal_:
+            # Check for timeout
+            if self.goal_start_time_ is not None:
+                elapsed = (self.get_clock().now() - self.goal_start_time_).nanoseconds / 1e9
+                if elapsed > self.goal_timeout_sec_:
+                    self.get_logger().warn(f"Goal timeout after {elapsed:.1f}s — choosing a new frontier.")
+                    self.ready_for_next_goal_ = True  # force new goal next cycle
+                    self.goal_start_time_ = None
             return
 
         robot_pose = self.get_pose_2d()
@@ -597,6 +602,7 @@ class CaveExplorer(Node):
         self.current_goal_ = goal_pose
         self.ready_for_next_goal_ = False
         self.planner_go_to_pose2d(goal_pose)
+        self.goal_start_time_ = self.get_clock().now()
 
 
     def publish_frontier_markers(self, frontiers):
