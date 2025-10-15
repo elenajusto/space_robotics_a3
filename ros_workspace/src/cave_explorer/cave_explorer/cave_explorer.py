@@ -126,14 +126,14 @@ class CaveExplorer(Node):
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
         self.declare_parameter('computer_vision_model_filename', rclpy.Parameter.Type.STRING)
         self.computer_vision_model_ = cv2.CascadeClassifier(self.get_parameter('computer_vision_model_filename').value)
-        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
+        # self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
 
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
 
         # Parameter for navigation type
 
-        self.declare_parameter('planner_type', 'random_goal')
+        self.declare_parameter('planner_type', 'frontier_exploration')
         planner_value = self.get_parameter('planner_type').value
         self.get_logger().info(f'Planner parameter initialised as: {planner_value}')
 
@@ -228,6 +228,7 @@ class CaveExplorer(Node):
         # with a mutex
         # "artifact_found_" doesn't need a mutex because it's an atomic
         num_detections = len(detections)
+        
 
         if num_detections > 0:
             self.artifact_found_ = True
@@ -244,6 +245,7 @@ class CaveExplorer(Node):
 
         if self.artifact_found_:
             self.get_logger().info('Artifact found! ELEANOR')
+            self.get_logger().warn(f'Detection: {detections}')
             self.localise_artifact()
 
 
@@ -438,8 +440,6 @@ class CaveExplorer(Node):
         if not self.ready_for_next_goal_:
             return
 
-        self.ready_for_next_goal_ = False
-
         # --- Progress flags ---
         if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
             self.get_logger().info('Reached first artifact!')
@@ -451,18 +451,10 @@ class CaveExplorer(Node):
         # --- Choose planner based on ROS parameter ---
         planner_str = self.get_parameter('planner_type').value
 
-        if planner_str == 'frontier':
+        if planner_str == 'frontier_exploration':
             self.planner_type_ = PlannerType.FRONTIER_EXPLORATION
-        elif planner_str == 'random':
+        elif planner_str == 'random_goal':
             self.planner_type_ = PlannerType.RANDOM_GOAL
-        else:
-            # Optional: fallback logic
-            if not self.reached_first_artifact_:
-                self.planner_type_ = PlannerType.GO_TO_FIRST_ARTIFACT
-            elif not self.returned_home_:
-                self.planner_type_ = PlannerType.RETURN_HOME
-            else:
-                self.planner_type_ = PlannerType.RANDOM_GOAL
 
         # --- Run selected planner ---
         self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
@@ -483,7 +475,7 @@ class CaveExplorer(Node):
 
 
     def find_frontiers(self):
-        """Find clusters of frontier cells and return their centroids as candidate goals."""
+        """Find clusters of frontier cells and return centroids as candidate goals (only if enough unknown nearby)."""
         if not hasattr(self, 'map_data_'):
             self.get_logger().debug("No map data yet.")
             return []
@@ -492,36 +484,55 @@ class CaveExplorer(Node):
         height = self.map_height_
         data = np.array(self.map_data_, dtype=np.int8).reshape((height, width))
 
-        # 1️⃣ Frontier mask: free cells adjacent to unknown
+        # Frontier mask: free cells (0) adjacent to unknown (-1)
         frontier_mask = np.zeros_like(data, dtype=bool)
         for y in range(1, height - 1):
             for x in range(1, width - 1):
-                if data[y, x] == 0:  # Free space
-                    # Check 8-neighbors for unknown
-                    if np.any(data[y-1:y+2, x-1:x+2] == -1):
+                if data[y, x] == 0:  # free cell
+                    neighborhood = data[y-1:y+2, x-1:x+2]
+                    if np.any(neighborhood == -1):
                         frontier_mask[y, x] = True
 
-        # 2️⃣ Label contiguous frontier regions
+        # Label contiguous frontier clusters
         structure = np.ones((3, 3), dtype=int)
         labeled, num_features = label(frontier_mask, structure=structure)
+
         if num_features == 0:
             self.get_logger().debug("No frontier clusters found.")
             return []
 
-        # 3️⃣ Compute cluster centroids (in map coordinates)
+        # Compute centroids (in world coordinates)
         centroids = []
         for i in range(1, num_features + 1):
             com = center_of_mass(frontier_mask, labels=labeled, index=i)
             if np.isnan(com[0]):
                 continue
 
-            # Convert pixel → world coordinates
+            # Convert to world coordinates
             wy = self.map_origin_.position.y + com[0] * self.map_resolution_
             wx = self.map_origin_.position.x + com[1] * self.map_resolution_
-            centroids.append((wx, wy))
 
-        self.get_logger().info(f"Found {num_features} frontier clusters.")
+            # 🔍 Check how many unknown cells surround this cluster
+            fx = int((wx - self.map_origin_.position.x) / self.map_resolution_)
+            fy = int((wy - self.map_origin_.position.y) / self.map_resolution_)
+            r = int(1.0 / self.map_resolution_)  # ~1m radius window
+            x_min, x_max = max(0, fx - r), min(width, fx + r)
+            y_min, y_max = max(0, fy - r), min(height, fy + r)
+            patch = data[y_min:y_max, x_min:x_max]
+            unknown_count = np.sum(patch == -1)
+
+            # Only accept frontiers with enough unexplored area
+            if unknown_count >= 16:
+                centroids.append((wx, wy))
+            else:
+                self.get_logger().debug(
+                    f"Rejected frontier at ({wx:.2f},{wy:.2f}) — only {unknown_count} unknown cells nearby."
+                )
+
+        self.get_logger().info(f"Found {len(centroids)} valid frontier clusters (of {num_features} total).")
         return centroids
+
+
 
 
     def choose_frontier_goal(self, frontiers, robot_pose, min_dist=0.5):
