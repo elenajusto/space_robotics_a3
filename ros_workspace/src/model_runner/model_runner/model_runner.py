@@ -7,7 +7,6 @@ from cv_bridge import CvBridge
 from ultralytics import YOLO
 import cv2
 import numpy as np
-import os
 
 class ModelRunnerNode(Node):
     def __init__(self):
@@ -23,29 +22,24 @@ class ModelRunnerNode(Node):
         model_path = "src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
         self.model = YOLO(model_path)
 
-        # Test subscription
-        self.subscription = self.create_subscription(String, 'topic', self.listener_callback, 10)
-
         # Camera sensor subscription
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
 
-    def listener_callback(self, msg):
-        # As a test listen to our minal publisher
-        self.get_logger().info('I heard: "%s"' % msg.data)
+    def image_callback(self, image_msg):
 
-    def image_callback(self, msg):
-        # Test listen for images
-        image = self.cv_bridge_.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-
+        # Turn received image into cv format
+        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
+        
         # Debug
         self.get_logger().info('Image received from camera')
+    
+        # Execute computer vision model
+        results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
 
-        # Call the yolo model on the image
-        self.execute_model(image)
+        if (results):
+            self.artifact_found_ = True
 
-    def execute_model(self, image):
-        results = self.model(image, stream=True, conf=0.6)
-
+        # Process detection
         for result in results:
             # Boxes object for bounding box outputs
             boxes = result.boxes  
@@ -83,8 +77,10 @@ class ModelRunnerNode(Node):
                     label = f"{class_name} {confidence:.2%}"  # Format confidence as percentage
                     cv2.putText(image, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-        # Always publish the image, whether or not there were any detections
+        # Re-convert processed cv image to ros format
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
+
+        # Publish format
         self.image_detections_pub_.publish(image_detection_message)
 
 def main(args=None):

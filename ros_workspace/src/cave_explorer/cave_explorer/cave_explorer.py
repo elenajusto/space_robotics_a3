@@ -97,9 +97,6 @@ class CaveExplorer(Node):
         # Array of type geometry_msgs.Point
         self.artifact_locations_ = []
 
-        # Initialise CvBridge
-        self.cv_bridge_ = CvBridge()
-
         # Prepare transformation to get robot pose
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -118,7 +115,8 @@ class CaveExplorer(Node):
         # Subscribe to the map topic to get current bounds
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
-        # Prepare image processing
+        # Image processing
+        self.cv_bridge_ = CvBridge()
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)            # Publish artefact detections to the visualiser thingy
         model_path = "src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory        
         self.model = YOLO(model_path)                                                               # Define YOLO model being used
@@ -241,7 +239,8 @@ class CaveExplorer(Node):
         # Set flags
         if self.artifact_found_:
             self.get_logger().info('Artifact found!')
-            self.localise_artifact()
+            # TODO: Debug - Temporairly disable localisation
+            # self.localise_artifact() 
 
     def localise_artifact(self):
         """

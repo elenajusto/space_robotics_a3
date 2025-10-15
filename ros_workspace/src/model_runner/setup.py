@@ -21,8 +21,6 @@ setup(
     entry_points={
         'console_scripts': [
             'model_runner = model_runner.model_runner:main',
-            'talker = model_runner.publisher_member_function:main',
-            'listener = model_runner.subscriber_member_function:main',
         ],
     },
 )
