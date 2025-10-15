@@ -204,7 +204,7 @@ class CaveExplorer(Node):
                 # Get name of detected object
             for box in boxes:
                 class_id = int(box.cls)    ################## I think this si the artifact type (so for instance, 0 = backpack, 1 = mushroom, etc.)
-                class_name = self.model.names[class_id] ##unsure what this is then these two varal are where im guessing i get the names from
+                class_name = self.model.names[class_id] ##unsure what this is then these two varal are where im guessing i get the names from #
                 self.get_logger().info('class_name: "%s"' % class_name)
 
             # Draw bounding boxes and labels
