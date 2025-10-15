@@ -52,6 +52,7 @@ class PlannerType(Enum):
     RANDOM_WALK = 4
     RANDOM_GOAL = 5
     # Add more!
+    Planning3 = 7
 
 class CaveExplorer(Node):
     def __init__(self):
@@ -198,37 +199,37 @@ class CaveExplorer(Node):
             boxes = result.boxes  
 
             # Process any detections if they exist
-            number_of_boxes = len(boxes.xywh)
-            if number_of_boxes > 0:
+            #number_of_boxes = len(boxes.xywh)   ####unsure if this is needed as the for loop wont run if theres no results right?
+            #if number_of_boxes > 0:
                 # Get name of detected object
-                for box in boxes:
-                    class_id = int(box.cls)
-                    class_name = self.model.names[class_id]
-                    self.get_logger().info('class_name: "%s"' % class_name)
+            for box in boxes:
+                class_id = int(box.cls)    ################## I think this si the artifact type (so for instance, 0 = backpack, 1 = mushroom, etc.)
+                class_name = self.model.names[class_id] ##unsure what this is then these two varal are where im guessing i get the names from
+                self.get_logger().info('class_name: "%s"' % class_name)
 
-                # Draw bounding boxes and labels
-                for i in range(number_of_boxes):
-                    self.get_logger().info('box: "%s"' % boxes.xywh[i])
+            # Draw bounding boxes and labels
+            for i in range(len(boxes.xywh)):
+                self.get_logger().info('box: "%s"' % boxes.xywh[i])
 
-                    x = int(boxes.xywh[i][0])
-                    y = int(boxes.xywh[i][1])
-                    width = int(boxes.xywh[i][2])
-                    height = int(boxes.xywh[i][3])
+                x = int(boxes.xywh[i][0])
+                y = int(boxes.xywh[i][1])
+                width = int(boxes.xywh[i][2])
+                height = int(boxes.xywh[i][3])
 
-                    self.get_logger().info('x: "%s"' % x)
-                    self.get_logger().info('y: "%s"' % y)
-                    self.get_logger().info('width: "%s"' % width)
-                    self.get_logger().info('height: "%s"' % height)
+                self.get_logger().info('x: "%s"' % x)
+                self.get_logger().info('y: "%s"' % y)
+                self.get_logger().info('width: "%s"' % width)
+                self.get_logger().info('height: "%s"' % height)
 
-                    # Draw bounding box
-                    cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+                # Draw bounding box
+                cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
 
-                    # Add text with class name and confidence score above the bounding box
-                    class_id = int(boxes.cls[i])
-                    confidence = float(boxes.conf[i])
-                    class_name = self.model.names[class_id]
-                    label = f"{class_name} {confidence:.2%}"  # Format confidence as percentage
-                    cv2.putText(image, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                # Add text with class name and confidence score above the bounding box
+                class_id = int(boxes.cls[i])
+                confidence = float(boxes.conf[i])
+                class_name = self.model.names[class_id]
+                label = f"{class_name} {confidence:.2%}"  # Format confidence as percentage
+                cv2.putText(image, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
         # Re-convert processed cv image to ros format
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
