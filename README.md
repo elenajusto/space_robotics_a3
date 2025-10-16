@@ -83,6 +83,12 @@ Initial deployment of YOLO model to environmemt:
 ### Planning 1: Autonomously explore the cave
 - **Goal**: *Robot to explore cave and build map of new areas.*
 - aka reduce the number of unknown/unobserved grids/pixels on the map if that grid/pixel does not have an obstacle and is hence traversable.
+- Ideas:
+    - Frontier based exploration where cells between free space and unknown space are explored
+
+- Topics of interest:
+    - 
+
 
 ### Planning 2: Close-range inspection
 - **Goal**: *Upon detection of an artefacte, pause exploration, generate a path to the artefact and navigate to it.*
