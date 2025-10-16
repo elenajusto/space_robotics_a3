@@ -139,6 +139,10 @@ class CaveExplorer(Node):
 
         self.current_goal_ = None
         self.ready_for_next_goal_ = True
+        self.goal_timeout_sec_ = 10
+        self.goal_start_time_ = None
+        # Timer which checks if the goal has not been reached
+        self.goal_timeout_timer_ = self.create_timer(1, self.check_goal_timeout)
 
 
 
@@ -345,6 +349,8 @@ class CaveExplorer(Node):
         self.ready_for_next_goal_ = True
 
 
+
+
     def planner_move_forwards(self, distance):
         """Simply move forward by the specified distance"""
 
@@ -515,7 +521,7 @@ class CaveExplorer(Node):
             # Check how many unknown cells surround this cluster
             fx = int((wx - self.map_origin_.position.x) / self.map_resolution_)
             fy = int((wy - self.map_origin_.position.y) / self.map_resolution_)
-            r = int(1.0 / self.map_resolution_)  # ~1m radius window
+            r = int(1.0 / self.map_resolution_)  
             x_min, x_max = max(0, fx - r), min(width, fx + r)
             y_min, y_max = max(0, fy - r), min(height, fy + r)
             patch = data[y_min:y_max, x_min:x_max]
@@ -524,14 +530,10 @@ class CaveExplorer(Node):
             # Only accept frontiers with enough unexplored area
             if unknown_count >= 16:
                 centroids.append((wx, wy))
-            else:
-                self.get_logger().debug(
-                    f"Rejected frontier at ({wx:.2f},{wy:.2f}) — only {unknown_count} unknown cells nearby."
-                )
+
 
         self.get_logger().info(f"Found {len(centroids)} valid frontier clusters (of {num_features} total).")
         return centroids
-
 
 
 
@@ -564,16 +566,11 @@ class CaveExplorer(Node):
 
     def planner_frontier_exploration(self):
         """Main frontier exploration loop."""
+
         # Skip if still travelling to a goal
         if not self.ready_for_next_goal_:
-            # Check for timeout
-            if self.goal_start_time_ is not None:
-                elapsed = (self.get_clock().now() - self.goal_start_time_).nanoseconds / 1e9
-                if elapsed > self.goal_timeout_sec_:
-                    self.get_logger().warn(f"Goal timeout after {elapsed:.1f}s — choosing a new frontier.")
-                    self.ready_for_next_goal_ = True  # force new goal next cycle
-                    self.goal_start_time_ = None
             return
+        
 
         robot_pose = self.get_pose_2d()
         if robot_pose is None:
@@ -603,6 +600,18 @@ class CaveExplorer(Node):
         self.ready_for_next_goal_ = False
         self.planner_go_to_pose2d(goal_pose)
         self.goal_start_time_ = self.get_clock().now()
+
+    def check_goal_timeout(self):
+        """Check if the current goal has timed out."""
+        if self.ready_for_next_goal_:
+            return
+
+        elapsed = (self.get_clock().now() - self.goal_start_time_).nanoseconds / 1e9
+        if elapsed > self.goal_timeout_sec_:
+            self.get_logger().warn(f"Goal timeout after {elapsed:.1f}s. Choosing new frontier.")
+            self.ready_for_next_goal_ = True
+            self.goal_start_time_ = None
+
 
 
     def publish_frontier_markers(self, frontiers):
