@@ -51,12 +51,26 @@ class PlannerType(Enum):
     GO_TO_FIRST_ARTIFACT = 3
     RANDOM_WALK = 4
     RANDOM_GOAL = 5
-    # Add more!
-    Planning3 = 7
+    
+    
+    Planning1 = 10
+    Planning2 = 11
+    Planning3 = 12
+
 
 class CaveExplorer(Node):
     def __init__(self):
         super().__init__('cave_explorer_node')
+
+        #Planner 3 parameters
+        self.inspected_artifacts_ = []
+        self.preferable_artifacts_ = [1, 2, 3] #IDs of preferable artifacts to inspect first, could use names also (just dont know them all)
+        self.current_artifacts_in_image_ = []
+        self.inspect_attempts = 0 #number of attempts to inspect the current artifact. this can only hit 1 before we give up and move on
+        self.inspect_time = 0 #how long we have spent inspecting the current artifact. if this gets too high we give up and move on
+
+
+
 
         # Variables/Flags for mapping
         self.xlim_ = [0.0, 0.0]
@@ -123,6 +137,8 @@ class CaveExplorer(Node):
         self.model = YOLO(model_path)                                                               # Define YOLO model being used
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)  # Listen to camera sensor
 
+        self.depth_image_sub_ = self.create_subscription(Image, 'camera/depth/image', self.depth_image_callback, 1)  # Listen to depth camera sensor chack this is the right topic
+
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
     
@@ -174,6 +190,21 @@ class CaveExplorer(Node):
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
         # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
     
+    def depth_image_callback(self, depth_image_msg):
+        """
+        Recieve a depth image.
+        Use this method to help localise artifacts of interest.
+        """
+        # Turn received image into cv format
+        depth_image = self.cv_bridge_.imgmsg_to_cv2(depth_image_msg, desired_encoding='passthrough')
+        
+        # Debug
+        self.get_logger().info('Depth image received from camera')
+    
+
+        # Process depth image here
+        # Currently not implemented
+
     def image_callback(self, image_msg):
         """
         Recieve an RGB image.
@@ -181,6 +212,8 @@ class CaveExplorer(Node):
         
         Code integrated based on dev and testing done in the `model_runner` package
         """
+        self.current_artifacts_in_image_ = [] #reset the list of artifacts in the image
+
         # Turn received image into cv format
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
         
@@ -204,6 +237,8 @@ class CaveExplorer(Node):
                 # Get name of detected object
             for box in boxes:
                 class_id = int(box.cls)    ################## I think this si the artifact type (so for instance, 0 = backpack, 1 = mushroom, etc.)
+                self.current_artifacts_in_image_.append(int(class_id)) #add the current artifact to the list of artifacts in the image
+                self.get_logger().info('class_id: "%s"' % class_id)
                 class_name = self.model.names[class_id] ##unsure what this is then these two varal are where im guessing i get the names from #
                 self.get_logger().info('class_name: "%s"' % class_name)
 
@@ -270,9 +305,9 @@ class CaveExplorer(Node):
         self.artifact_locations_.append(point)
 
         # Publish the markers
-        self.publish_artifact_markers()
+        self.publish_artifact_markers() ##
 
-    def publish_artifact_markers(self):
+    def publish_artifact_markers(self): ##as seen above it take the list of points and publishes them as markers
         """ Publish the artifact location markers"""
 
         # Update the locations
@@ -413,6 +448,43 @@ class CaveExplorer(Node):
         )
         self.planner_go_to_pose2d(goal_pose2d)
 
+
+
+    ###FUNCTIONS HARLEYS ADDED TO MAKE PLANNER 3 WORK###
+    def planner1(self):
+        if self.planner_type_ == PlannerType.Planning3:
+            ##add in autonomous searching for the artifacts
+            if self.artifact_found_ == True:
+                self.planner2()
+
+
+    def planner2(self):
+        
+        if self.planner_type_ == PlannerType.Planning3:
+            for artifact in self.current_artifacts_in_image_:
+                if artifact in self.preferable_artifacts_:
+                    
+
+
+                    pass ## do the upclose search of it, must be able to timeout
+            return ## return so it can continue autonomously searching in planner 1
+
+
+    def planner3(self):
+        """Add your own planner here!"""
+        self.planner1()
+        
+
+
+
+
+
+
+
+
+
+        pass
+
     def main_loop(self):
         """
         Set the next goal pose and send to the action server
@@ -435,8 +507,7 @@ class CaveExplorer(Node):
             # self.get_logger().info(f'Previous goal still running')
             return
 
-        self.ready_for_next_goal_ = False
-
+        """self.ready_for_next_goal_ = False
         if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
             self.get_logger().info('Successfully reached first artifact!')
             self.reached_first_artifact_ = True
@@ -470,10 +541,20 @@ class CaveExplorer(Node):
             self.planner_random_goal()
         else:
             self.get_logger().error('No valid planner selected')
-            self.destroy_node()
+            self.destroy_node() """
 
 
         #######################################################
+        ### PLANNING 3 ###
+        self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
+        if self.planner_type_ == PlannerType.Planning1:
+            self.planner1()
+        elif self.planner_type_ == PlannerType.Planning2:
+            self.planner2()
+        elif self.planner_type_ == PlannerType.Planning3:
+            self.planner3()
+
+
 
 def main():
     # Initialise
@@ -482,5 +563,4 @@ def main():
     # Create the cave explorer
     cave_explorer = CaveExplorer()
 
-    while rclpy.ok():
-        rclpy.spin(cave_explorer)
+    rclpy.spin(cave_explorer)

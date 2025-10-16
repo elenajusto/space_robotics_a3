@@ -90,6 +90,14 @@ Initial deployment of YOLO model to environmemt:
 ### Planning 3: Behaviour switching
 - **Goal**: *Alternate between exploration and inspection. Inspect new artefacts whilst not inspecting already inspected artefacts.*
 
+I have Implimented a few new functions and variables into the code.
+ - a list of artifacts we want to search (as the assignemnt brief says the arficats we can reliably detect)
+ - a list for the artifacts we have inspected (this will only get added to if the artifact was already in the list of things we want to search)
+ - we can add to the already there artifacts location list and then publish the new maker for it after planer 2 is developed. 
+ - two variables for timeout and fallback
+
+ Thinking i may neeed to add a list tht keeps track of the position of the artifacts we have scanned so we dont try to redo them. We also need to figure out how to get it to once its done scanning turn and keep autonomously searching (this is more a problem for planning 2 though)
+
 ### Advanced 1: Robust perception
 - **Goal**: *Extend your solution and analysis from Perception 1-3 for environments with additional perceptual challenges. Apply degrading visual effects to the images received in cave_explorer.py, then feed these degraded images into your computer vision pipeline.*
 - Aim is to simulate Martian conditions. Examples include dust, poor lighting, low-quality cameras, dirty lenses, or motion blur.
