@@ -102,6 +102,9 @@ I have Implimented a few new functions and variables into the code.
 - **Goal**: *Extend your solution and analysis from Perception 1-3 for environments with additional perceptual challenges. Apply degrading visual effects to the images received in cave_explorer.py, then feed these degraded images into your computer vision pipeline.*
 - Aim is to simulate Martian conditions. Examples include dust, poor lighting, low-quality cameras, dirty lenses, or motion blur.
 
+Added in a variety of 
+  
+
 ### Advanced 2: Cave geometry analysis
 - **Goal**: *Extend your system to perform online analysis of cave geometry while exploring. Automatically identify regions of interest such as the widest open areas (potentially suitable for future human habitation) and narrow passages (critical for navigation and hazard assessment).*
 
