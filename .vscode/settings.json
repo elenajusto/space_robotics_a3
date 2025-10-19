@@ -1,0 +1,19 @@
+{
+    "ros.distro": "humble",
+    "python.autoComplete.extraPaths": [
+        "/home/student/ros2_ws/build/cave_explorer",
+        "/home/student/ros2_ws/install/cave_explorer/lib/python3.10/site-packages",
+        "/home/student/ros2_ws/build/camera_processor",
+        "/home/student/ros2_ws/install/camera_processor/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/student/ros2_ws/build/cave_explorer",
+        "/home/student/ros2_ws/install/cave_explorer/lib/python3.10/site-packages",
+        "/home/student/ros2_ws/build/camera_processor",
+        "/home/student/ros2_ws/install/camera_processor/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
+}
