@@ -204,10 +204,7 @@ def main(args=None):
     camera_processor = CameraProcessor()
 
     rclpy.spin(camera_processor)
-
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
+    
     camera_processor.destroy_node()
     rclpy.shutdown()
 

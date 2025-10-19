@@ -507,7 +507,7 @@ class CaveExplorer(Node):
             # self.get_logger().info(f'Previous goal still running')
             return
 
-        """self.ready_for_next_goal_ = False
+        self.ready_for_next_goal_ = False
         if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
             self.get_logger().info('Successfully reached first artifact!')
             self.reached_first_artifact_ = True
@@ -541,11 +541,12 @@ class CaveExplorer(Node):
             self.planner_random_goal()
         else:
             self.get_logger().error('No valid planner selected')
-            self.destroy_node() """
+            self.destroy_node() 
 
 
         #######################################################
         ### PLANNING 3 ###
+        """
         self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
         if self.planner_type_ == PlannerType.Planning1:
             self.planner1()
@@ -553,6 +554,7 @@ class CaveExplorer(Node):
             self.planner2()
         elif self.planner_type_ == PlannerType.Planning3:
             self.planner3()
+        """
 
 
 
