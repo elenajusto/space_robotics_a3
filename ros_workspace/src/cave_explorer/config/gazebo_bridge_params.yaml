@@ -54,6 +54,13 @@
   gz_type_name: "ignition.msgs.Image"
   direction: GZ_TO_ROS
 
+# Camera: camera info
+- ros_topic_name: "/camera/camera_info"
+  gz_topic_name: "/model/mars_explorer/camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "ignition.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
 # Camera: depth
 - ros_topic_name: "/camera/depth/image"
   gz_topic_name: "/model/mars_explorer/camera/depth_image"
