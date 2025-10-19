@@ -17,7 +17,7 @@ class ModelRunnerNode(Node):
         # Initialise CvBridge
         self.cv_bridge_ = CvBridge()
 
-        # Publisher
+        # Publisher of annotated images
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
  
         # Initialise the YOLO model
