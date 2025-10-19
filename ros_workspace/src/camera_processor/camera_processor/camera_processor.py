@@ -13,7 +13,7 @@ from rclpy.qos import qos_profile_sensor_data
 
 
 # Configure
-local_image_directory = r"advanced_1raw+effects"  # Directory to save images locally
+local_image_directory = r"advanced_1raw_and_effects"  # Directory to save images locally
 
 # This is a custom node which we are using to listen to the camera
 class CameraProcessor(Node):
