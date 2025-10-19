@@ -201,7 +201,7 @@ class CaveExplorer(Node):
         # Debug
         self.get_logger().info('Depth image received from camera')
     
-
+        pass
         # Process depth image here
         # Currently not implemented
 

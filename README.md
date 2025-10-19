@@ -102,8 +102,23 @@ I have Implimented a few new functions and variables into the code.
 - **Goal**: *Extend your solution and analysis from Perception 1-3 for environments with additional perceptual challenges. Apply degrading visual effects to the images received in cave_explorer.py, then feed these degraded images into your computer vision pipeline.*
 - Aim is to simulate Martian conditions. Examples include dust, poor lighting, low-quality cameras, dirty lenses, or motion blur.
 
-Added in a variety of 
+Added in a variety of effects which can be added:
+ * "none" : no effect
+ * "blur" : median blur filter
+ * "dust" : salt and pepper noise to simulate dust
+ * "motion_blur" : motion blur filter
+ * "low_light" : simulating low light conditions
+ * "low_res" : reducing image resolution
   
+
+
+
+This is how to set the parameters you can change for advanced 1 
+ * ros2 param set /camera_processor effect dust (any of the names listed above)
+ * ros2 param set /camera_processor severity 2 (0-3)
+ * ros2 param set /camera_processor save_every_n 0 (0-inf)
+
+ The level of severity can be anything between 0-3, only the values 1-3 have any effect on the image. If the severity is set to 0 the image will be returned with no effect to it.
 
 ### Advanced 2: Cave geometry analysis
 - **Goal**: *Extend your system to perform online analysis of cave geometry while exploring. Automatically identify regions of interest such as the widest open areas (potentially suitable for future human habitation) and narrow passages (critical for navigation and hazard assessment).*

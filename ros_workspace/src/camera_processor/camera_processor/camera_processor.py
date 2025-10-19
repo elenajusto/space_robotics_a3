@@ -9,11 +9,11 @@ import os
 ##libraries imported for Advanced 1
 import numpy as np
 from rclpy.qos import qos_profile_sensor_data
-from PIL import Image, ImageEnhance
+#from PIL import Image
 
 
 # Configure
-local_image_directory = r"raw_images"
+local_image_directory = r"advanced_1raw+effects"  # Directory to save images locally
 
 # This is a custom node which we are using to listen to the camera
 class CameraProcessor(Node):
@@ -30,13 +30,12 @@ class CameraProcessor(Node):
         self.effect_counter = 0  # Counter to cycle through different effects in Advanced 1
         self.image_before_pub_ = self.create_publisher(Image, 'camera/image_before', 1)
         self.image_after_pub_ = self.create_publisher(Image, 'camera/image_after', 1)
-        self.image_annot_pub_ = self.create_publisher(Image, 'camera/image_detections', 1)
 
         # Parameters to switch effects at runtime (ros2 param set …)
         self.declare_parameter('effect', 'none')     # 'none' | 'dust' | 'motion_blur' | 'low_light' | 'low_res'
         self.declare_parameter('severity', 0)        # 0..3
-        self.declare_parameter('chain_preprocess', True)  # run improvement before YOLO
         self.declare_parameter('save_every_n', 0)    # 0 = don’t save, else save every N frames
+        self.frame_idx = 0
 
 
         # Subscribes to the camera sensor's topic which has messages which contain image
@@ -49,18 +48,25 @@ class CameraProcessor(Node):
         '''
         Method within the custom node that is called when data (image messages) from camera topic is received
         '''
-        
-        # Debug statement
-        print("Doing the listen...")                
-
         # Convert received message into cv2 format
         image = self.cv_bridge_.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
         # Debug
         print(image)  # Results: Images are outputted in matrix form
 
-        image = self.advanced_1_image_processing(image)
+        self.image_before_pub_.publish(self.cv_bridge_.cv2_to_imgmsg(image, encoding='passthrough'))
+
+        # Debug statement
+        print("Doing the listen...")
+        n = int(self.get_parameter('save_every_n').get_parameter_value().integer_value) #get the save every n frames parameter
+        if n > 0 and self.frame_idx % n == 0: #check if we need to save this frame by checking the frame index
+            effected_image = self.advanced_1_image_processing(image) #process the image with selected effect
+
+            self.image_after_pub_.publish(self.cv_bridge_.cv2_to_imgmsg(effected_image, encoding='passthrough')) #publish the effected image
+
+            self.image_saver(effected_image)  #save the effected image
         
+        self.frame_idx += 1
         self.image_saver(image)
 
     def image_saver(self, image):
@@ -87,6 +93,7 @@ class CameraProcessor(Node):
         #the kernel for transforming the image
         effect = self.get_parameter('effect').get_parameter_value().string_value
         level  = int(self.get_parameter('severity').get_parameter_value().integer_value)
+        level  = max(0, min(level, 3))  #clamp level to be between 0 and 3
 
         """
         effect options:
@@ -95,7 +102,7 @@ class CameraProcessor(Node):
         "dust" : salt and pepper noise to simulate dust
         "motion_blur" : motion blur filter
         "low_light" : simulating low light conditions
-        "resolution" : reducing image resolution
+        "low_res" : reducing image resolution
         """
 
         match effect:
@@ -109,14 +116,15 @@ class CameraProcessor(Node):
                 distorted_image = self.motion_blur(image, level)
             case "low_light": # simulating low light conditions
                 distorted_image = self.low_light(image, level) 
-            case "resolution": # reducing image resolution
-                distorted_image
+            case "low_res": # reducing image resolution
+                distorted_image = self.resolution_reduction(image, level)
+            case _:  #default case if no effect matches
+                self._logger.warn(f"Effect '{effect}' not recognised, no processing will be done.")
+                return image  #no processing done
 
             ###could apply functions that combine two effects
 
-
-        self.image_saver(image)  #save the original image
-        self.image_saver(distorted_image)  #save the processed image instead of the original
+        return distorted_image
 
     def resolution_reduction(self, image, reduction_level):
         if reduction_level == 0:
