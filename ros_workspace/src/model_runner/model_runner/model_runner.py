@@ -2,9 +2,34 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
+from geometry_msgs.msg import Pose2D
 import numpy as np
 from ultralytics import YOLO
 import cv2
+
+class Artefact:
+    """Class for keeping track of detected artefacts"""
+    def __init__(self, object_type: str, offset: int):
+        self.object_type = object_type      # Class name from YOLO detection
+        self.offset = offset                # Pixel offset from center
+        self.tracking = False               # Whether this object is currently being tracked
+        self.localised = False              # Whether we have determined the object's location
+        self.detected_location = None       # Robot's pose when object was detected (Pose2D)
+        self.last_seen = 0                  # Frames since last detection
+    
+    def update_location(self, pose: Pose2D):
+        """Update the detected location with current robot pose"""
+        self.detected_location = pose
+        self.localised = True
+    
+    def update_offset(self, offset: int):
+        """Update the pixel offset from center"""
+        self.offset = offset
+        self.last_seen = 0  # Reset counter since we've seen it
+    
+    def increment_last_seen(self):
+        """Increment the counter for frames since last detection"""
+        self.last_seen += 1
 
 class ModelRunnerNode(Node):
     def __init__(self):
@@ -25,18 +50,23 @@ class ModelRunnerNode(Node):
         self.center_x = None
         self.center_y = None
         
-        # Target tracking parameters
-        self.target_object = None       # Store target object class
-        self.target_confidence = 0.0    # Store target detection confidence
+        # Robot state
+        self.current_pose = None        # Current robot pose
         self.frames_without_target = 0  # Count frames where target is lost
         self.max_frames_lost = 10       # Number of frames before considering target lost
-        self.target_lock = False        # Whether we're actively tracking a target
+        
+        # Artefact tracking
+        self.current_artefact = None  # Currently tracked artefact
+        self.detected_artefacts = {}  # Dictionary to store all detected artefacts {object_type: Artefact}
         
         # Subscribe to RGB camera
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
 
         # Subscribe to camera intrinsics and extrinsics
         self.camera_info_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.save_intrinsics, 10)
+
+        # Subscribe to robot pose
+        self.pose_sub = self.create_subscription(Pose2D, 'robot_pose', self.pose_callback, 10)
 
         # Publisher of annotated images
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
@@ -47,6 +77,14 @@ class ModelRunnerNode(Node):
             return 
         self.camera_matrix = np.array(msg.k).reshape(3, 3)
         self.has_camera_info = True
+        
+    def pose_callback(self, pose_msg: Pose2D):
+        """Update current robot pose and update artefact location if tracking"""
+        self.current_pose = pose_msg
+        
+        # If we're tracking an artefact and it's not yet localised, record its location
+        if self.current_artefact and not self.current_artefact.localised:
+            self.current_artefact.update_location(pose_msg)
     
     def image_callback(self, image_msg):
          
