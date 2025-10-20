@@ -63,12 +63,39 @@ Then the confidence thresholds that categorised a detection was tweaked from the
 ## Perception 3 
 My initial approach to this task was to use camera intrinsic and extrinsic values in conjunction with the linear algebra relationship between 2D points on an image, camera matrix and 3D points in the "real world" to do a transform that would allow me to estimate an object's real world coordinates based on its coordinates in an image.
 
-However I have switched my approach to instead focus firstly on allowing close-inspection of an artefact with hte intent of doing a proper localisation once the rover is close to the artefact.
+My initial planning involved working with this model:
+![camera_model.png](images/camera_model.png)
+
+For some reason I got into a rabbit hole trying to find the focal length of the camera since it was not provided in any of hte `xacro` files, whilst horizontal FOV was. So using the below relationship between FOV, focal length and image size:
+![camera_fov.png](images/fov.png)
+
+I went about estimating the focal length:
+![focal_calc.png](images/focal_calc.png)
+
+Numerous internet resources stated to use FOV in radians however comparing my calculations using radians and degrees, the focal length given when using degrees made the most sense.
+
+Eventually however I discovered I could add a plugin to publish the camera's intrinsic and extrinsic values since it came with Gazebo, so the following was added to the `gazebo_bridge_params.yaml` file:
+
+```yaml
+# Camera: camera info
+- ros_topic_name: "/camera/camera_info"
+  gz_topic_name: "/model/mars_explorer/camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "ignition.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+```
+
+I then tried to look for methods to help me do the transform however felt hopeless and tired from pursuing this method.
+
+So I have switched my approach to instead focus firstly on allowing close-inspection of an artefact with hte intent of doing a proper localisation once the rover is close to the artefact.
 
 I have struggle ddefining what close means so for the purposes of development I am going to do the following:
 - Center the detected artefact in the camera frame within an arbitrary -50 and +50 pixel range
 - Create a vector that points in the direction that the robot is facing once the above condition is met
 - Have the close-inspection path planner kick in to move the robot within an arbitrary distance towards the artefact
 - Create a marker a few meters in the direction of the artefact
+
+The below image demonstrates the general idea:
+![close_in_image.png](images/close_in_image.png)
 
 This will then serve as the initial estimate. I then hope to use the depth camera or lidar scanner to refine this estimate, but I am yet to look at the sensor data being received from the depth camera and lidar scanner so this remains an extension goal for Perception.
