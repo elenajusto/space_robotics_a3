@@ -13,7 +13,7 @@ from rclpy.qos import qos_profile_sensor_data
 
 
 # Configure
-local_image_directory = r"advanced_1raw_and_effects"  # Directory to save images locally
+local_image_directory = r"raw_images/advanced_1_raw_and_effects"  # Directory to save images locally
 
 # This is a custom node which we are using to listen to the camera
 class CameraProcessor(Node):
@@ -35,7 +35,10 @@ class CameraProcessor(Node):
         self.declare_parameter('effect', 'none')     # 'none' | 'dust' | 'motion_blur' | 'low_light' | 'low_res'
         self.declare_parameter('severity', 0)        # 0..3
         self.declare_parameter('save_every_n', 0)    # 0 = don’t save, else save every N frames
+        
         self.frame_idx = 0
+
+        os.makedirs(local_image_directory, exist_ok=True)  # Ensure the image directory exists
 
 
         # Subscribes to the camera sensor's topic which has messages which contain image
@@ -49,25 +52,25 @@ class CameraProcessor(Node):
         Method within the custom node that is called when data (image messages) from camera topic is received
         '''
         # Convert received message into cv2 format
-        image = self.cv_bridge_.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        image = self.cv_bridge_.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
         # Debug
         print(image)  # Results: Images are outputted in matrix form
 
-        self.image_before_pub_.publish(self.cv_bridge_.cv2_to_imgmsg(image, encoding='passthrough'))
+        self.image_before_pub_.publish(self.cv_bridge_.cv2_to_imgmsg(image, encoding='bgr8'))
 
-        # Debug statement
-        print("Doing the listen...")
         n = int(self.get_parameter('save_every_n').get_parameter_value().integer_value) #get the save every n frames parameter
-        if n > 0 and self.frame_idx % n == 0: #check if we need to save this frame by checking the frame index
-            effected_image = self.advanced_1_image_processing(image) #process the image with selected effect
+        effect = self.get_parameter('effect').get_parameter_value().string_value
+
+        if n > 0 and self.frame_idx % n == 0 and effect is not "none": #check if we need to save this frame by checking the frame index
+            effected_image = self.advanced_1_image_processing(image, effect) #process the image with selected effect
 
             self.image_after_pub_.publish(self.cv_bridge_.cv2_to_imgmsg(effected_image, encoding='passthrough')) #publish the effected image
-
-            self.image_saver(effected_image)  #save the effected image
-        
+            self.effected_image_saver(image, effected_image)
         self.frame_idx += 1
-        self.image_saver(image)
+        
+        self.image_saver(image)  # Save image to local directory if no effect is chosen
+        
 
     def image_saver(self, image):
         '''
@@ -87,11 +90,28 @@ class CameraProcessor(Node):
         # Save image to directory using cv2
         cv2.imwrite(filepath, image)
         print(f"Saved image to {filepath}")
+    
+    def effected_image_saver(self, image, effected_image): ## this could definitely be combined with the function above i just not spending time on it
+        '''
+        Handle the process of saving an image to local file
+        '''
+        # Create filename with timestamp
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"camera_image_{timestamp}.jpg"
+        filepath = os.path.join(local_image_directory, filename)
+
+        # Make image RGB
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        effected_image = cv2.cvtColor(effected_image, cv2.COLOR_BGR2RGB)
+        
+        # Save image to directory using cv2
+        cv2.imwrite(filepath, image)
+        cv2.imwrite(filepath.replace("camera_image", "effected_image"), effected_image)
+        print(f"Saved image to {filepath}")
 
 
-    def advanced_1_image_processing(self, image):
+    def advanced_1_image_processing(self, image, effect=None):
         #the kernel for transforming the image
-        effect = self.get_parameter('effect').get_parameter_value().string_value
         level  = int(self.get_parameter('severity').get_parameter_value().integer_value)
         level  = max(0, min(level, 3))  #clamp level to be between 0 and 3
 
@@ -121,8 +141,6 @@ class CameraProcessor(Node):
             case _:  #default case if no effect matches
                 self._logger.warn(f"Effect '{effect}' not recognised, no processing will be done.")
                 return image  #no processing done
-
-            ###could apply functions that combine two effects
 
         return distorted_image
 

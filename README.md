@@ -111,12 +111,18 @@ Added in a variety of effects which can be added:
  * "low_res" : reducing image resolution
   
 
+The camera processor should also be able to be run while setting the parameters like this:
+ * ros2 run camera_processor listener --ros-args -p effect:=motion_blur -p severity:=2 -p save_every_n:=20
 
 
 This is how to set the parameters you can change for advanced 1 
  * ros2 param set /camera_processor effect dust (any of the names listed above)
  * ros2 param set /camera_processor severity 2 (0-3)
  * ros2 param set /camera_processor save_every_n 0 (0-inf)
+
+ Or this can be run with:
+ ros2 run camera_processor listener --ros-args -p effect:=low_light -p severity:=3 -p save_every_n:=20
+
 
  The level of severity can be anything between 0-3, only the values 1-3 have any effect on the image. If the severity is set to 0 the image will be returned with no effect to it.
 
