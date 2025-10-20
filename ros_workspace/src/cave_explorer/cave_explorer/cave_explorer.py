@@ -116,11 +116,11 @@ class CaveExplorer(Node):
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
         # Image processing
-        self.cv_bridge_ = CvBridge()
-        self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)            # Publish artefact detections to the visualiser thingy
-        model_path = "src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory        
-        self.model = YOLO(model_path)                                                               # Define YOLO model being used
-        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)  # Listen to camera sensor
+        # self.cv_bridge_ = CvBridge()
+        # self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)            # Publish artefact detections to the visualiser thingy
+        # model_path = "src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory        
+        # self.model = YOLO(model_path)                                                               # Define YOLO model being used
+        # self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)  # Listen to camera sensor
 
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
