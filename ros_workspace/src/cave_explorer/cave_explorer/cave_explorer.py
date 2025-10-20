@@ -97,6 +97,28 @@ class CaveExplorer(Node):
         self.marker_artifacts_.color.b = 0.2
         self.marker_pub_ = self.create_publisher(MarkerArray, 'marker_array_artifacts', 10)
 
+        self.inspected_marker_artifacts_ = Marker()
+        self.inspected_marker_artifacts_.header.frame_id = "map"
+        self.inspected_marker_artifacts_.ns = "inspected_artifacts"
+        self.inspected_marker_artifacts_.id = 0
+        self.inspected_marker_artifacts_.type = Marker.SPHERE_LIST
+        self.inspected_marker_artifacts_.action = Marker.ADD
+        self.inspected_marker_artifacts_.pose.position.x = 0.0
+        self.inspected_marker_artifacts_.pose.position.y = 0.0
+        self.inspected_marker_artifacts_.pose.position.z = 0.0
+        self.inspected_marker_artifacts_.pose.orientation.x = 0.0
+        self.inspected_marker_artifacts_.pose.orientation.y = 0.0
+        self.inspected_marker_artifacts_.pose.orientation.z = 0.0
+        self.inspected_marker_artifacts_.pose.orientation.w = 1.0
+        self.inspected_marker_artifacts_.scale.x = 1.5
+        self.inspected_marker_artifacts_.scale.y = 1.5
+        self.inspected_marker_artifacts_.scale.z = 1.5
+        self.inspected_marker_artifacts_.color.a = 1.0
+        self.inspected_marker_artifacts_.color.r = 1.0
+        self.inspected_marker_artifacts_.color.g = 0.0
+        self.inspected_marker_artifacts_.color.b = 0.2
+
+
         # Remember the artifact locations
         # Array of type geometry_msgs.Point
         self.artifact_locations_ = []
@@ -122,28 +144,39 @@ class CaveExplorer(Node):
         # Subscribe to the map topic to get current bounds
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
-        # Prepare image processing
+        # Prepare image processing and subscribe to image detection to get artifact information
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
         self.declare_parameter('computer_vision_model_filename', rclpy.Parameter.Type.STRING)
         self.computer_vision_model_ = cv2.CascadeClassifier(self.get_parameter('computer_vision_model_filename').value)
-        # self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
+        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
 
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
 
         # Parameter for navigation type
-
         self.declare_parameter('planner_type', 'frontier_exploration')
         planner_value = self.get_parameter('planner_type').value
         self.get_logger().info(f'Planner parameter initialised as: {planner_value}')
 
         self.current_goal_ = None
-        self.ready_for_next_goal_ = True
-        self.goal_timeout_sec_ = 8
+        self.goal_timeout_sec_ = 8 # Time in seconds rover will spend going to each goal
         self.goal_start_time_ = None
+        self.min_unknown_cell_clusters = 16 # Size of grouped consective cells to be valid frontier goal
 
         # Goal timeout timer
         self.goal_timeout_timer_ = self.create_timer(0.5, self.check_goal_timeout)
+
+        # Behaviour control for state machine
+        self.current_behavior_ = "exploration"   # "exploration" or "inspection"
+        self.artifact_found_ = False
+        self.inspection_goal_sent_ = False
+        self.inspected_artifacts_ = []  # store inspected artifact map coords
+        self.selected_artifact_ = None  # currently targeted artifact
+        self.standoff_distance_ = 0.8  # distance to stay away from artifact 
+        self.inspection_duplicate_distance_ = 1.0  # don't inspect same artifact if within this distance
+
+        # depth camera subscription - may be unused until you implement depth processing
+        self.depth_image_sub_ = self.create_subscription(Image, 'camera/depth/image', self.depth_image_callback, 1)    
 
 
 
@@ -219,7 +252,7 @@ class CaveExplorer(Node):
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
 
         # Create a grayscale version (some simple models use this)
-        # image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         # Retrieve the pre-trained model
         stop_sign_model = self.computer_vision_model_
@@ -249,11 +282,93 @@ class CaveExplorer(Node):
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
         self.image_detections_pub_.publish(image_detection_message)
 
-        if self.artifact_found_:
-            self.get_logger().info('Artifact found!')
+        #If an artifact is found, switch to inspection mode
+        if self.artifact_found_ and self.current_behavior_ != "inspection":
+            self.get_logger().info('Artifact found! Switching to inspection')
             self.get_logger().warn(f'Detection: {detections}')
             self.localise_artifact()
+    
+    
 
+    def plan_inspection_goal(self):
+        """Generate and send a close-range (standoff) goal near the selected artifact."""
+        if not self.selected_artifact_:
+            self.get_logger().warn("plan_inspection_goal: no selected artifact.")
+            self.current_behavior_ = "exploration"
+            return
+
+        artifact_point = self.selected_artifact_
+        robot_pose = self.get_pose_2d()
+        if robot_pose is None:
+            self.get_logger().warn("No robot pose available for inspection.")
+            self.current_behavior_ = "exploration"
+            return
+
+        dx = artifact_point.x 
+        dy = artifact_point.y
+        angle = math.atan2(dy, dx)
+
+        goal_x = artifact_point.x - self.standoff_distance_ * math.cos(angle)
+        goal_y = artifact_point.y - self.standoff_distance_ * math.sin(angle)
+        goal_yaw = angle
+
+        self.get_logger().warn(f"Inspection goal: ({goal_x:.2f}, {goal_y:.2f}), yaw={goal_yaw:.2f}")
+        goal_pose = Pose2D(x=goal_x, y=goal_y, theta=goal_yaw)
+
+        # switch behavior and send the goal using existing planner function
+        self.current_behavior_ = "inspection"
+        self.inspection_goal_sent_ = True
+        self.planner_go_to_pose2d(goal_pose)
+
+
+    def handle_artifact_goal(self, success: bool):
+        if self.current_behavior_ == "inspection":
+            if success:
+                self.get_logger().info("Inspection goal reached — marking artifact inspected.")
+                self.inspected_artifacts_.append(self.selected_artifact_)
+            else:
+                self.get_logger().warn("Inspection failed — returning to exploration.")
+            
+            self.selected_artifact_ = None
+            self.inspection_goal_sent_ = False
+            self.artifact_found_ = False
+            self.current_behavior_ = "exploration"
+
+    def handle_artifact_goal(self, success: bool):
+        """Called when an inspection attempt completes or fails."""
+        if self.current_behavior_ != "inspection":
+            return
+
+        if success:
+            self.get_logger().info("Inspection sucessful. Marking artifact inspected.")
+            # append selected_artifact_ to inspected list
+            self.inspected_artifacts_.append(self.selected_artifact_)
+        else:
+            self.get_logger().warn("Inspection failed. Abandoning this artifact for now.")
+
+        # reset inspection state and resume exploration
+        self.selected_artifact_ = None
+        self.inspection_goal_sent_ = False
+        self.artifact_found_ = False
+        self.current_behavior_ = "exploration"
+        self.goal_start_time_ = None
+        self.ready_for_next_goal_ = True
+        # optionally refresh markers
+        self.publish_artifact_markers()
+
+
+    def depth_image_callback(self, depth_image_msg):
+        """
+        Recieve a depth image.
+        Use this method to help localise artifacts of interest.
+        """
+        # Turn received image into cv format
+        depth_image = self.cv_bridge_.imgmsg_to_cv2(depth_image_msg, desired_encoding='passthrough')
+            
+        pass
+        # Process depth image here
+        # Currently not implemented     
+    
 
     def localise_artifact(self):
         """
@@ -278,11 +393,27 @@ class CaveExplorer(Node):
         point.y = robot_pose.y
         point.z = 1.0
 
-        # Save it
-        self.artifact_locations_.append(point)
+        # check duplicates (do not re-inspect already inspected artifacts)
+        for a in self.inspected_artifacts_:
+            if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
+                self.get_logger().info("Detected artifact already inspected.")             
+                return
 
-        # Publish the markers
+        # also check existing recorded (but not yet inspected)
+        for a in self.artifact_locations_:
+            if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
+                self.get_logger().info("Artifact already recorded")
+                return
+
+        # Save approx artifact location and publish markers
+        self.artifact_locations_.append(point)
         self.publish_artifact_markers()
+        
+
+        # select this artifact to inspect and plan approach
+        self.selected_artifact_ = point
+        self.plan_inspection_goal()
+
 
     def publish_artifact_markers(self):
         """ Publish the artifact location markers"""
@@ -294,7 +425,19 @@ class CaveExplorer(Node):
         marker_array = MarkerArray()
         marker_array.markers = [self.marker_artifacts_]
         self.marker_pub_.publish(marker_array)
+        self.publish_inspected_artifact_markers()
+        
+    
+    def publish_inspected_artifact_markers(self):
+        """ Publish the artifact location markers"""
 
+        # Update the locations
+        self.inspected_marker_artifacts_.points = self.inspected_artifacts_
+
+        # Create and publish the MarkerArray
+        marker_array = MarkerArray()
+        marker_array.markers = [self.inspected_marker_artifacts_]
+        self.marker_pub_.publish(marker_array)
 
     def planner_go_to_pose2d(self, pose2d):
         """Go to a provided 2d pose"""
@@ -315,11 +458,12 @@ class CaveExplorer(Node):
             feedback_method = None
 
         # Send goal to action server
-        self.get_logger().warn(f'Sending goal HELP [{pose2d.x:.2f}, {pose2d.y:.2f}]...')
-        self.send_goal_future_ = self.nav2_action_client_.send_goal_async(
-            action_goal,
-            feedback_callback=feedback_method)
-        self.send_goal_future_.add_done_callback(self.goal_response_callback)
+        if self.ready_for_next_goal_:
+            self.get_logger().warn(f'Sending goal [{pose2d.x:.2f}, {pose2d.y:.2f}]...')
+            self.send_goal_future_ = self.nav2_action_client_.send_goal_async(
+                action_goal,
+                feedback_callback=feedback_method)
+            self.send_goal_future_.add_done_callback(self.goal_response_callback)
 
     def goal_response_callback(self, future):
         """The requested goal pose has been sent to the action server"""
@@ -334,7 +478,7 @@ class CaveExplorer(Node):
         self.goal_start_time_ = self.get_clock().now()
         self.get_result_future_ = goal_handle.get_result_async()
         self.get_result_future_.add_done_callback(self.goal_reached_callback)
-
+        self.ready_for_next_goal_= False #Locking goals for now
 
 
 
@@ -353,6 +497,13 @@ class CaveExplorer(Node):
         self.ready_for_next_goal_ = True
         self.goal_start_time_ = None
         self.current_goal_ = None
+        
+        # If inspecting, inspection would be completion
+        if self.current_behavior_ == "inspection":
+            self.handle_artifact_goal(success=True)
+        else:
+            # normal exploration goal finished; continue
+            self.current_goal_ = None
 
 
 
@@ -447,6 +598,11 @@ class CaveExplorer(Node):
         if not self.tf_buffer.can_transform('map', 'base_link', rclpy.time.Time()):
             self.get_logger().warn('Waiting for transform... Have you launched SLAM?')
             return
+        
+            # If currently inspecting an artifact
+        if self.current_behavior_ == "inspection":
+            # Wait until goal is reached or timeout is handled
+            return
 
         if not self.ready_for_next_goal_:
             return
@@ -487,10 +643,11 @@ class CaveExplorer(Node):
 
     def find_frontiers(self):
         """Find clusters of frontier cells and return centroids as candidate goals (only if enough unknown nearby)."""
+ 
         if not hasattr(self, 'map_data_'):
             self.get_logger().debug("No map data yet.")
             return []
-
+    
         width = self.map_width_
         height = self.map_height_
         data = np.array(self.map_data_, dtype=np.int8).reshape((height, width))
@@ -533,7 +690,7 @@ class CaveExplorer(Node):
             unknown_count = np.sum(patch == -1)
 
             # Only accept frontiers with enough unexplored area
-            if unknown_count >= 16:
+            if unknown_count >= self.min_unknown_cell_clusters:
                 centroids.append((wx, wy))
 
 
@@ -564,7 +721,7 @@ class CaveExplorer(Node):
 
             if best_frontier:
                 self.get_logger().info(
-                    f"Chosen frontier ELEANOR: ({best_frontier[0]:.2f}, {best_frontier[1]:.2f}) | score={best_score:.2f}"
+                    f"Chosen frontier: ({best_frontier[0]:.2f}, {best_frontier[1]:.2f}) with score={best_score:.2f}"
                 )
             else:
                 self.get_logger().warn("No valid frontier goal selected.")
@@ -587,7 +744,7 @@ class CaveExplorer(Node):
         frontiers = self.find_frontiers()
 
         if not frontiers:
-            self.get_logger().warn("No frontiers found — maybe fully explored?")
+            self.get_logger().warn("No frontiers found. Maybe fully explored?")
             self.ready_for_next_goal_ = True
             return
 
@@ -596,40 +753,42 @@ class CaveExplorer(Node):
 
         # Choose next goal
         goal = self.choose_frontier_goal(frontiers, robot_pose)
-        if goal is None:
-            self.ready_for_next_goal_ = True
-            return
 
         self.get_logger().info(f"Exploring frontier at ({goal[0]:.2f}, {goal[1]:.2f})")
 
         goal_pose = Pose2D(x=goal[0], y=goal[1], theta=0.0)
         self.current_goal_ = goal_pose
-        self.ready_for_next_goal_ = False
         self.planner_go_to_pose2d(goal_pose)
-        self.goal_start_time_ = self.get_clock().now()
+
 
 
     def check_goal_timeout(self):
         """Check if the current goal has timed out."""
-
         if self.goal_start_time_ is None or self.ready_for_next_goal_:
             return
-        
-        if self.planner_type_  == PlannerType.FRONTIER_EXPLORATION:
 
-            elapsed = (self.get_clock().now() - self.goal_start_time_).nanoseconds / 1e9
+        elapsed = (self.get_clock().now() - self.goal_start_time_).nanoseconds / 1e9
 
+        # If we are inspecting, timeout should cancel inspection
+        if self.current_behavior_ == "inspection":
             if elapsed > self.goal_timeout_sec_:
-                self.get_logger().warn(f"Goal timeout after {elapsed:.1f}s. Choosing new frontier.")            
+                self.get_logger().warn(f"Inspection goal timeout after {elapsed:.1f}s. Abandoning inspection.")
+                # call failure handler
+                self.handle_artifact_goal(success=False)
+            return
+
+        # Otherwise normal frontier/exploration timeout handling
+        if self.current_behavior_ == "exploration":
+            if elapsed > self.goal_timeout_sec_:
+                self.get_logger().warn(f"Frontier goal timeout after {elapsed:.1f}s. Choosing new frontier.")
                 self.ready_for_next_goal_ = True
                 self.goal_start_time_ = None
-
-
+                self.current_goal_ = None
 
 
 
     def publish_frontier_markers(self, frontiers):
-        """Visualise detected frontier points in RViz."""
+        """Visualise detected frontier points in RViz as blue dots."""
         marker = Marker()
         marker.header.frame_id = "map"
         marker.ns = "frontiers"
