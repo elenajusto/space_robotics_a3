@@ -56,12 +56,16 @@ class PlannerType(Enum):
     Planning1 = 10
     Planning2 = 11
     Planning3 = 12
-    Advance4 = 20
+    Advanced4 = 20
 
 
 class CaveExplorer(Node):
     def __init__(self):
         super().__init__('cave_explorer_node')
+
+        self.declare_parameter('mode', 'navigate') #THIS SHOULD HAVE ADVANCED 4, PLANNER 1, 2, 3 (OR WHATEVER WE CALL THEM)
+        mode_str = self.get_parameter('mode').value
+        
 
         #Planner 3 parameters
         self.inspected_artifacts_ = []
@@ -80,6 +84,38 @@ class CaveExplorer(Node):
         self.roadmap_knn_k_        = int(self.get_parameter('roadmap_knn_k').value)
         self.roadmap_edge_radius_  = float(self.get_parameter('roadmap_edge_radius').value)
         self.roadmap_occ_thresh_   = int(self.get_parameter('roadmap_occ_thresh').value)
+
+        # storage for advanced 4
+        self.road_nodes_ = []      # [(x,y)]
+        self.road_edges_ = []      # [(i,j)]
+        self._last_node_idx_ = None
+        self._roadmap_dirty_ = False
+
+        # markers used in the advanced 4 stuff
+        self.road_nodes_marker_ = Marker()
+        self.road_nodes_marker_.header.frame_id = "map"
+        self.road_nodes_marker_.ns   = "roadmap"
+        self.road_nodes_marker_.id   = 100
+        self.road_nodes_marker_.type = Marker.POINTS
+        self.road_nodes_marker_.action = Marker.ADD
+        self.road_nodes_marker_.scale.x = 0.25
+        self.road_nodes_marker_.scale.y = 0.25
+        self.road_nodes_marker_.color.a = 1.0
+        self.road_nodes_marker_.color.r = 1.0
+        self.road_nodes_marker_.color.g = 1.0
+        self.road_nodes_marker_.color.b = 0.0
+
+        self.road_edges_marker_ = Marker()
+        self.road_edges_marker_.header.frame_id = "map"
+        self.road_edges_marker_.ns   = "roadmap"
+        self.road_edges_marker_.id   = 101
+        self.road_edges_marker_.type = Marker.LINE_LIST
+        self.road_edges_marker_.action = Marker.ADD
+        self.road_edges_marker_.scale.x = 0.08
+        self.road_edges_marker_.color.a = 1.0
+        self.road_edges_marker_.color.r = 0.2
+        self.road_edges_marker_.color.g = 0.6
+        self.road_edges_marker_.color.b = 1.0
 
 
         # Variables/Flags for mapping
@@ -515,8 +551,7 @@ class CaveExplorer(Node):
     
     def _los_free(self, x1, y1, x2, y2):
         """
-        Line-of-sight check between two world coordinates using Bresenham's
-        algorithm on the occupancy grid.
+        Line-of-sight check between two world coordinates using Bresenham's algorithm on the occupancy grid.
 
         Returns True if every grid cell along the discrete line between (x1,y1) and (x2,y2) has occupancy <= roadmap_occ_thresh_.
         Returns False if the map is not available or any cell is considered occupied.
@@ -528,7 +563,7 @@ class CaveExplorer(Node):
         ix1, iy1 = self._world_to_grid(x1, y1)
         ix2, iy2 = self._world_to_grid(x2, y2)
 
-        # Bresmans algorythm gotten from online. Need comments to remmebr what happening
+        # Bresmans algorythm gotten from online. Need all the comments to remmebr whats happening
         #https://www.roguebasin.com/index.php?title=Bresenham%27s_Line_Algorithm#Python
 
         # dx is the absolute difference in x indices
@@ -568,7 +603,91 @@ class CaveExplorer(Node):
         # No blocking cells found along the line
         return True
 
+    def _maybe_add_node(self, pose: Pose2D): # Add a node at the robot pose if spaced far enough from last node.
+        if len(self.road_nodes_) == 0:
+            self.road_nodes_.append((pose.x, pose.y))
+            self._last_node_idx_ = 0
+            self._roadmap_dirty_ = True
+            return
 
+        lastx, lasty = self.road_nodes_[self._last_node_idx_]
+        d = math.hypot(pose.x - lastx, pose.y - lasty)
+        if d >= self.roadmap_node_spacing_:
+            self.road_nodes_.append((pose.x, pose.y))
+            self._last_node_idx_ = len(self.road_nodes_) - 1
+            self._roadmap_dirty_ = True
+
+    def _try_connect_edges_from(self, idx):
+        """KNN connections with LOS check."""
+        if idx is None: return
+        x, y = self.road_nodes_[idx]
+        # candidates within radius
+        dists = []
+        for j, (xj, yj) in enumerate(self.road_nodes_):
+            if j == idx: continue
+            dist = math.hypot(x - xj, y - yj)
+            if dist <= self.roadmap_edge_radius_:
+                dists.append((dist, j))
+        dists.sort(key=lambda t: t[0])
+        added = 0
+        for _, j in dists:
+            if added >= self.roadmap_knn_k_:
+                break
+            # avoid duplicate edge
+            if (idx, j) in self.road_edges_ or (j, idx) in self.road_edges_:
+                continue
+            xj, yj = self.road_nodes_[j]
+            if self._los_free(x, y, xj, yj):
+                self.road_edges_.append((idx, j))
+                added += 1
+                self._roadmap_dirty_ = True
+
+    def _publish_roadmap(self):
+        if not self._roadmap_dirty_:
+            return
+        # nodes
+        self.road_nodes_marker_.points = []
+        for (x,y) in self.road_nodes_:
+            p = Point(); p.x = x; p.y = y; p.z = 0.0
+            self.road_nodes_marker_.points.append(p)
+
+        # edges (LINE_LIST expects pairs of points)
+        self.road_edges_marker_.points = []
+        for (i,j) in self.road_edges_:
+            p1 = Point(); p1.x, p1.y, p1.z = self.road_nodes_[i][0], self.road_nodes_[i][1], 0.0
+            p2 = Point(); p2.x, p2.y, p2.z = self.road_nodes_[j][0], self.road_nodes_[j][1], 0.0
+            self.road_edges_marker_.points.extend([p1,p2])
+
+        arr = MarkerArray()
+        # update headers
+        now = self.get_clock().now().to_msg()
+        self.road_nodes_marker_.header.stamp = now
+        self.road_edges_marker_.header.stamp = now
+        arr.markers = [self.road_nodes_marker_, self.road_edges_marker_]
+        self.marker_pub_.publish(arr)
+        self._roadmap_dirty_ = False
+
+    def roadmap_update(self): #this should be called a few time a second when the planner type is correct
+        # need map + tf
+        if not hasattr(self, 'map_data_'):
+            return
+        if not self.tf_buffer.can_transform('map', 'base_link', rclpy.time.Time()):
+            return
+        pose = self.get_pose_2d()
+        if pose is None:
+            return
+
+        # add node if spaced
+        prev_count = len(self.road_nodes_)
+        self._maybe_add_node(pose)
+        if len(self.road_nodes_) != prev_count:
+            # new node → try KNN edges from the new node
+            self._try_connect_edges_from(self._last_node_idx_)
+        # publish if changed
+        self._publish_roadmap()
+
+    ###########################################################################################
+    ############################### End of stuff for advaNCED 4########################
 
 
     def main_loop(self):
@@ -594,7 +713,19 @@ class CaveExplorer(Node):
             return
 
         self.ready_for_next_goal_ = False
-        if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
+
+        match self.mode_str_:
+            case 'Planning1':
+                self.planner_type_ = PlannerType.Planning1
+            case 'Planning2':
+                self.planner_type_ = PlannerType.Planning2
+            case 'Planning3':
+                self.planner_type_ = PlannerType.Planning3
+            case 'Advance4':
+                self.planner_type_ = PlannerType.Advanced4
+                self.roadmap_update()
+
+        """if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
             self.get_logger().info('Successfully reached first artifact!')
             self.reached_first_artifact_ = True
         if self.planner_type_ == PlannerType.RETURN_HOME:
@@ -628,7 +759,7 @@ class CaveExplorer(Node):
         else:
             self.get_logger().error('No valid planner selected')
             self.destroy_node() 
-
+"""
 
         #######################################################
         ### PLANNING 3 ###
