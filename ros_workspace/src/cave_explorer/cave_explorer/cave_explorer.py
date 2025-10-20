@@ -139,10 +139,12 @@ class CaveExplorer(Node):
 
         self.current_goal_ = None
         self.ready_for_next_goal_ = True
-        self.goal_timeout_sec_ = 10
+        self.goal_timeout_sec_ = 8
         self.goal_start_time_ = None
-        # Timer which checks if the goal has not been reached
-        self.goal_timeout_timer_ = self.create_timer(1, self.check_goal_timeout)
+
+        # Goal timeout timer
+        self.goal_timeout_timer_ = self.create_timer(0.5, self.check_goal_timeout)
+
 
 
 
@@ -173,7 +175,7 @@ class CaveExplorer(Node):
         else: 
             pose.theta = wrap_angle(-2. * math.acos(qw))
 
-        self.get_logger().warn(f'Pose: {pose}')
+        # self.get_logger().warn(f'Pose: {pose}')
 
         return pose
 
@@ -248,7 +250,7 @@ class CaveExplorer(Node):
         self.image_detections_pub_.publish(image_detection_message)
 
         if self.artifact_found_:
-            self.get_logger().info('Artifact found! ELEANOR')
+            self.get_logger().info('Artifact found!')
             self.get_logger().warn(f'Detection: {detections}')
             self.localise_artifact()
 
@@ -313,7 +315,7 @@ class CaveExplorer(Node):
             feedback_method = None
 
         # Send goal to action server
-        self.get_logger().warn(f'Sending goal [{pose2d.x:.2f}, {pose2d.y:.2f}]...')
+        self.get_logger().warn(f'Sending goal HELP [{pose2d.x:.2f}, {pose2d.y:.2f}]...')
         self.send_goal_future_ = self.nav2_action_client_.send_goal_async(
             action_goal,
             feedback_callback=feedback_method)
@@ -329,8 +331,10 @@ class CaveExplorer(Node):
 
         # Goal accepted: get result when it's completed
         self.get_logger().warn(f'Goal accepted')
+        self.goal_start_time_ = self.get_clock().now()
         self.get_result_future_ = goal_handle.get_result_async()
         self.get_result_future_.add_done_callback(self.goal_reached_callback)
+
 
 
 
@@ -347,6 +351,8 @@ class CaveExplorer(Node):
         result = future.result().result
         self.get_logger().info(f'Goal reached!')
         self.ready_for_next_goal_ = True
+        self.goal_start_time_ = None
+        self.current_goal_ = None
 
 
 
@@ -434,7 +440,6 @@ class CaveExplorer(Node):
         Set the next goal pose and send to the action server
         See https://docs.nav2.org/concepts/index.html
         """
-        
 
         """Main decision loop"""
         self.get_logger().debug(f'Loop running; planner_type = {self.planner_type_}, parameter = {self.get_parameter("planner_type").value}')
@@ -545,22 +550,24 @@ class CaveExplorer(Node):
         best_score = float('-inf')
         best_frontier = None
 
-        for f in frontiers:
-            dist = math.hypot(f[0] - robot_pose.x, f[1] - robot_pose.y)
-            if dist < min_dist:
-                continue
+        if self.ready_for_next_goal_:
 
-            score = -dist + 1.0 / (1.0 + math.exp(-0.2 * (dist - 1.0)))
-            if score > best_score:
-                best_score = score
-                best_frontier = f
+            for f in frontiers:
+                dist = math.hypot(f[0] - robot_pose.x, f[1] - robot_pose.y)
+                if dist < min_dist:
+                    continue
 
-        if best_frontier:
-            self.get_logger().info(
-                f"Chosen frontier: ({best_frontier[0]:.2f}, {best_frontier[1]:.2f}) | score={best_score:.2f}"
-            )
-        else:
-            self.get_logger().warn("No valid frontier goal selected.")
+                score = -dist + 1.0 / (1.0 + math.exp(-0.2 * (dist - 1.0)))
+                if score > best_score:
+                    best_score = score
+                    best_frontier = f
+
+            if best_frontier:
+                self.get_logger().info(
+                    f"Chosen frontier ELEANOR: ({best_frontier[0]:.2f}, {best_frontier[1]:.2f}) | score={best_score:.2f}"
+                )
+            else:
+                self.get_logger().warn("No valid frontier goal selected.")
 
         return best_frontier
 
@@ -601,16 +608,23 @@ class CaveExplorer(Node):
         self.planner_go_to_pose2d(goal_pose)
         self.goal_start_time_ = self.get_clock().now()
 
+
     def check_goal_timeout(self):
         """Check if the current goal has timed out."""
-        if self.ready_for_next_goal_:
-            return
 
-        elapsed = (self.get_clock().now() - self.goal_start_time_).nanoseconds / 1e9
-        if elapsed > self.goal_timeout_sec_:
-            self.get_logger().warn(f"Goal timeout after {elapsed:.1f}s. Choosing new frontier.")
-            self.ready_for_next_goal_ = True
-            self.goal_start_time_ = None
+        if self.goal_start_time_ is None or self.ready_for_next_goal_:
+            return
+        
+        if self.planner_type_  == PlannerType.FRONTIER_EXPLORATION:
+
+            elapsed = (self.get_clock().now() - self.goal_start_time_).nanoseconds / 1e9
+
+            if elapsed > self.goal_timeout_sec_:
+                self.get_logger().warn(f"Goal timeout after {elapsed:.1f}s. Choosing new frontier.")            
+                self.ready_for_next_goal_ = True
+                self.goal_start_time_ = None
+
+
 
 
 
