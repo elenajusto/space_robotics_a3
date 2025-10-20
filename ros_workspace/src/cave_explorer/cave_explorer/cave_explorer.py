@@ -56,6 +56,7 @@ class PlannerType(Enum):
     Planning1 = 10
     Planning2 = 11
     Planning3 = 12
+    Advance4 = 20
 
 
 class CaveExplorer(Node):
@@ -69,7 +70,16 @@ class CaveExplorer(Node):
         self.inspect_attempts = 0 #number of attempts to inspect the current artifact. this can only hit 1 before we give up and move on
         self.inspect_time = 0 #how long we have spent inspecting the current artifact. if this gets too high we give up and move on
 
+        # ===== Advanced 4: Online Roadmap Construction =====
+        self.declare_parameter('roadmap_node_spacing', 1.5)   # meters between added nodes
+        self.declare_parameter('roadmap_knn_k', 3)            # connect to K nearest neighbors
+        self.declare_parameter('roadmap_edge_radius', 6.0)    # max distance to try edges
+        self.declare_parameter('roadmap_occ_thresh', 50)      # occupancy threshold [0..100]
 
+        self.roadmap_node_spacing_ = float(self.get_parameter('roadmap_node_spacing').value)
+        self.roadmap_knn_k_        = int(self.get_parameter('roadmap_knn_k').value)
+        self.roadmap_edge_radius_  = float(self.get_parameter('roadmap_edge_radius').value)
+        self.roadmap_occ_thresh_   = int(self.get_parameter('roadmap_occ_thresh').value)
 
 
         # Variables/Flags for mapping
@@ -176,15 +186,14 @@ class CaveExplorer(Node):
         """New map received, so update x and y limits"""
 
         # Extract data from message
-        map_origin = [map_msg.info.origin.position.x, 
-                      map_msg.info.origin.position.y]
-        map_resolution = map_msg.info.resolution
-        map_height = map_msg.info.height
-        map_width = map_msg.info.width
+        self.map_origin = map_msg.info.origin
+        self.map_resolution = map_msg.info.resolution
+        self.map_height = map_msg.info.height
+        self.map_width = map_msg.info.width
 
         # Set current limits
-        self.xlim_ = [map_origin[0], map_origin[0]+map_width*map_resolution]
-        self.ylim_ = [map_origin[1], map_origin[1]+map_height*map_resolution]
+        self.xlim_ = [self.map_origin.position.x, self.map_origin.position.x + self.map_width * self.map_resolution]
+        self.ylim_ = [self.map_origin.position.y, self.map_origin.position.y + self.map_height * self.map_resolution]
 
         # self.get_logger().warn('Map received:')
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
@@ -484,6 +493,83 @@ class CaveExplorer(Node):
 
 
         pass
+
+
+
+    #####################################################################################################
+    #################### ADVANCED 4 FUNCTIONS TO BUILD ONLINE ROADMAP ##################################
+    #####################################################################################################
+
+    def _grid_at(self, ix, iy): #check if the position is in the map
+        if ix < 0 or iy < 0 or ix >= self.map_width_ or iy >= self.map_height_:
+            return 100  # out of map = blocked
+        return self.map_data_[iy*self.map_width_ + ix]  ##why is this calculation done like this?
+       # This is done to convert the 2D grid coordinates (ix, iy) into a 1D array index.
+       # The map_data_ array is stored in row-major order, so we need to calculate the index
+       # by multiplying the row index (iy) by the width of the map (map_width_) and adding the column index (ix).
+
+    def _world_to_grid(self, x, y):
+        ix = int((x - self.map_origin_.position.x) / self.map_resolution_)
+        iy = int((y - self.map_origin_.position.y) / self.map_resolution_)
+        return ix, iy
+    
+    def _los_free(self, x1, y1, x2, y2):
+        """
+        Line-of-sight check between two world coordinates using Bresenham's
+        algorithm on the occupancy grid.
+
+        Returns True if every grid cell along the discrete line between (x1,y1) and (x2,y2) has occupancy <= roadmap_occ_thresh_.
+        Returns False if the map is not available or any cell is considered occupied.
+        """
+        # Ensure we have a map to work with
+        if not hasattr(self, 'map_data_'):
+            return False
+        # Convert world coordinates to integer grid indices
+        ix1, iy1 = self._world_to_grid(x1, y1)
+        ix2, iy2 = self._world_to_grid(x2, y2)
+
+        # Bresmans algorythm gotten from online. Need comments to remmebr what happening
+        #https://www.roguebasin.com/index.php?title=Bresenham%27s_Line_Algorithm#Python
+
+        # dx is the absolute difference in x indices
+        dx = abs(ix2 - ix1)
+        # dy is the negative absolute difference in y indices (algorithm convention)
+        dy = -abs(iy2 - iy1)
+        # Step direction for x and y (either +1 or -1)
+        sx = 1 if ix1 < ix2 else -1
+        sy = 1 if iy1 < iy2 else -1
+        # The error term used by Bresenham
+        err = dx + dy
+
+        # Start from the first grid cell
+        x, y = ix1, iy1
+
+        # Walk the grid cells from (ix1,iy1) to (ix2,iy2)
+        while True:
+            # If the cell occupancy is above threshold, line-of-sight is blocked
+            if self._grid_at(x, y) > self.roadmap_occ_thresh_:
+                return False
+
+            # If we've reached the target cell, the line is free
+            if x == ix2 and y == iy2:
+                break
+
+            # Double the error to decide which way to step
+            e2 = 2 * err
+            # Step in x if warranted
+            if e2 >= dy:
+                err += dy
+                x += sx
+            # Step in y if warranted
+            if e2 <= dx:
+                err += dx
+                y += sy
+
+        # No blocking cells found along the line
+        return True
+
+
+
 
     def main_loop(self):
         """
