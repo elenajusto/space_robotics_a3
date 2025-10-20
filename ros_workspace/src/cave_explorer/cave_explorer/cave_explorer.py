@@ -172,8 +172,14 @@ class CaveExplorer(Node):
         self.inspection_goal_sent_ = False
         self.inspected_artifacts_ = []  # store inspected artifact map coords
         self.selected_artifact_ = None  # currently targeted artifact
-        self.standoff_distance_ = 0.8  # distance to stay away from artifact 
+        self.standoff_distance_ = 3  # distance to stay away from artifact 
         self.inspection_duplicate_distance_ = 1.0  # don't inspect same artifact if within this distance
+
+        # Stores the active nav2 goal handle so we can cancel
+        self.current_goal_handle_ = None
+
+        # Timer handle for inspection pause
+        self.inspection_pause_timer_ = None
 
         # depth camera subscription - may be unused until you implement depth processing
         self.depth_image_sub_ = self.create_subscription(Image, 'camera/depth/image', self.depth_image_callback, 1)    
@@ -284,11 +290,41 @@ class CaveExplorer(Node):
 
         #If an artifact is found, switch to inspection mode
         if self.artifact_found_ and self.current_behavior_ != "inspection":
-            self.get_logger().info('Artifact found! Switching to inspection')
+            self.get_logger().info('Artifact found!')
             self.get_logger().warn(f'Detection: {detections}')
             self.localise_artifact()
     
     
+
+    # def plan_inspection_goal(self):
+    #     """Generate and send a close-range (standoff) goal near the selected artifact."""
+    #     if not self.selected_artifact_:
+    #         self.get_logger().warn("plan_inspection_goal: no selected artifact.")
+    #         self.current_behavior_ = "exploration"
+    #         return
+
+    #     artifact_point = self.selected_artifact_
+    #     robot_pose = self.get_pose_2d()
+    #     if robot_pose is None:
+    #         self.get_logger().warn("No robot pose available for inspection.")
+    #         self.current_behavior_ = "exploration"
+    #         return
+
+    #     dx = artifact_point.x 
+    #     dy = artifact_point.y
+    #     angle = math.atan2(dy, dx)
+
+    #     goal_x = artifact_point.x - self.standoff_distance_ * math.cos(angle)
+    #     goal_y = artifact_point.y - self.standoff_distance_ * math.sin(angle)
+    #     goal_yaw = angle
+
+    #     self.get_logger().warn(f"Inspection goal: ({goal_x:.2f}, {goal_y:.2f}), yaw={goal_yaw:.2f}")
+    #     goal_pose = Pose2D(x=goal_x, y=goal_y, theta=goal_yaw)
+
+    #     # switch behavior and send the goal using existing planner function
+    #     self.current_behavior_ = "inspection"
+    #     self.inspection_goal_sent_ = True
+    #     self.planner_go_to_pose2d(goal_pose)
 
     def plan_inspection_goal(self):
         """Generate and send a close-range (standoff) goal near the selected artifact."""
@@ -304,8 +340,8 @@ class CaveExplorer(Node):
             self.current_behavior_ = "exploration"
             return
 
-        dx = artifact_point.x 
-        dy = artifact_point.y
+        dx = artifact_point.x - robot_pose.x
+        dy = artifact_point.y - robot_pose.y
         angle = math.atan2(dy, dx)
 
         goal_x = artifact_point.x - self.standoff_distance_ * math.cos(angle)
@@ -318,21 +354,39 @@ class CaveExplorer(Node):
         # switch behavior and send the goal using existing planner function
         self.current_behavior_ = "inspection"
         self.inspection_goal_sent_ = True
-        self.planner_go_to_pose2d(goal_pose)
 
+        # If currently travelling to a frontier goal, cancel it so we can preempt
+        if not self.ready_for_next_goal_:
+            self.get_logger().info("Cancelling current frontier goal to preempt for inspection...")
+            self.cancel_current_goal()
 
-    def handle_artifact_goal(self, success: bool):
-        if self.current_behavior_ == "inspection":
-            if success:
-                self.get_logger().info("Inspection goal reached — marking artifact inspected.")
-                self.inspected_artifacts_.append(self.selected_artifact_)
-            else:
-                self.get_logger().warn("Inspection failed — returning to exploration.")
-            
-            self.selected_artifact_ = None
-            self.inspection_goal_sent_ = False
-            self.artifact_found_ = False
-            self.current_behavior_ = "exploration"
+        # force sending the inspection goal even if ready flag was false momentarily
+        self.planner_go_to_pose2d(goal_pose, force=True)
+
+    def cancel_current_goal(self):
+        """Cancel the currently-active navigation goal (if any)."""
+        try:
+            if self.current_goal_handle_ is not None:
+                self.get_logger().info("Sending cancel request for current goal...")
+                # goal_handle has cancel_goal_async()
+                cancel_future = self.current_goal_handle_.cancel_goal_async()
+                # best effort: attach a done callback to log result (not required)
+                def _on_cancel_done(fut):
+                    try:
+                        res = fut.result()
+                        self.get_logger().info(f"Cancel request completed: {res}")
+                    except Exception as e:
+                        self.get_logger().warn(f"Cancel request failed: {e}")
+                cancel_future.add_done_callback(_on_cancel_done)
+                # clear stored handle now (we are preempting)
+                self.current_goal_handle_ = None
+                # ensure ready so we can send new goal
+                self.ready_for_next_goal_ = True
+        except Exception as e:
+            self.get_logger().warn(f"Exception while cancelling goal: {e}")
+            self.current_goal_handle_ = None
+            self.ready_for_next_goal_ = True
+
 
     def handle_artifact_goal(self, success: bool):
         """Called when an inspection attempt completes or fails."""
@@ -340,21 +394,65 @@ class CaveExplorer(Node):
             return
 
         if success:
-            self.get_logger().info("Inspection sucessful. Marking artifact inspected.")
-            # append selected_artifact_ to inspected list
-            self.inspected_artifacts_.append(self.selected_artifact_)
+            self.get_logger().info("Reached artifact of interest.")
+            # We will actually mark the artifact inspected when the pause timer fires.
+            # (resume_after_inspection will publish markers and clear state)
+            # create a one-shot 3s timer (we cancel it immediately inside callback)
+            # ensure no existing timer
+            if self.inspection_pause_timer_ is not None:
+                try:
+                    self.inspection_pause_timer_.cancel()
+                except Exception:
+                    pass
+            # create timer — callback cancels it immediately and resumes
+            self.get_logger().info("Inspecting artifact...")
+            self.inspection_pause_timer_ = self.create_timer(3.0, self.resume_after_inspection)
         else:
-            self.get_logger().warn("Inspection failed. Abandoning this artifact for now.")
+            self.get_logger().warn("Inspection failed. Abandoning this artifact.")
+            self.reset_to_exploration()
 
-        # reset inspection state and resume exploration
+
+    def resume_after_inspection(self):
+        """Resume normal exploration after inspection pause."""
+        # cancel timer so it's not repeated
+        try:
+            if self.inspection_pause_timer_ is not None:
+                self.inspection_pause_timer_.cancel()
+        except Exception:
+            pass
+        self.get_logger().info("Inspection complete. Marking artifact inspected and resuming exploration.")
+
+        # Mark artifact inspected (avoid duplicates)
+        if self.selected_artifact_ is not None:
+            self.inspected_artifacts_.append(self.selected_artifact_)
+
+        # publish updated markers
+        self.publish_inspected_artifact_markers()
+        # remove it from artifact_locations_ if present
+        try:
+            if self.selected_artifact_ in self.artifact_locations_:
+                self.artifact_locations_.remove(self.selected_artifact_)
+        except ValueError:
+            pass
+
+        # reset state
         self.selected_artifact_ = None
         self.inspection_goal_sent_ = False
         self.artifact_found_ = False
         self.current_behavior_ = "exploration"
-        self.goal_start_time_ = None
         self.ready_for_next_goal_ = True
-        # optionally refresh markers
-        self.publish_artifact_markers()
+        self.goal_start_time_ = None
+        self.inspection_pause_timer_ = None
+
+    def reset_to_exploration(self):
+        """Reset inspection-related flags and resume exploration."""
+        self.selected_artifact_ = None
+        self.inspection_goal_sent_ = False
+        self.artifact_found_ = False
+        self.current_behavior_ = "exploration"
+        self.ready_for_next_goal_ = True
+        self.goal_start_time_ = None
+
 
 
     def depth_image_callback(self, depth_image_msg):
@@ -389,17 +487,18 @@ class CaveExplorer(Node):
         # Compute the location of the artifact
         # This is currently INCOMPLETE
         point = Point()
-        point.x = robot_pose.x
-        point.y = robot_pose.y
+        point.x = robot_pose.x + 2 # Forcing a fake location for artifacts
+        point.y = robot_pose.y + 2
         point.z = 1.0
 
-        # check duplicates (do not re-inspect already inspected artifacts)
+        # check duplicates to not inspect artifatcs already inspected
         for a in self.inspected_artifacts_:
             if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
-                self.get_logger().info("Detected artifact already inspected.")             
+                self.get_logger().info("Detected artifact already inspected.")  
+                self.publish_inspected_artifact_markers()
                 return
 
-        # also check existing recorded (but not yet inspected)
+        #Will add to locations
         for a in self.artifact_locations_:
             if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
                 self.get_logger().info("Artifact already recorded")
@@ -427,8 +526,9 @@ class CaveExplorer(Node):
         self.marker_pub_.publish(marker_array)
         self.publish_inspected_artifact_markers()
         
+        
     
-    def publish_inspected_artifact_markers(self):
+    def publish_inspected_artifact_markers(self): # Inspected artifacts will be Red
         """ Publish the artifact location markers"""
 
         # Update the locations
@@ -439,7 +539,7 @@ class CaveExplorer(Node):
         marker_array.markers = [self.inspected_marker_artifacts_]
         self.marker_pub_.publish(marker_array)
 
-    def planner_go_to_pose2d(self, pose2d):
+    def planner_go_to_pose2d(self, pose2d, force: bool = False):
         """Go to a provided 2d pose"""
 
         # Send a goal to navigate_to_pose with self.nav2_action_client_
@@ -458,7 +558,7 @@ class CaveExplorer(Node):
             feedback_method = None
 
         # Send goal to action server
-        if self.ready_for_next_goal_:
+        if self.ready_for_next_goal_ or force:
             self.get_logger().warn(f'Sending goal [{pose2d.x:.2f}, {pose2d.y:.2f}]...')
             self.send_goal_future_ = self.nav2_action_client_.send_goal_async(
                 action_goal,
@@ -467,18 +567,25 @@ class CaveExplorer(Node):
 
     def goal_response_callback(self, future):
         """The requested goal pose has been sent to the action server"""
+        try:
+            goal_handle = future.result()
+        except Exception as e:
+            self.get_logger().error(f'Goal response exception: {e}')
+            return
 
-        goal_handle = future.result()
         if not goal_handle.accepted:
             self.get_logger().error('Goal rejected')
             return
 
+        # store handle so we can cancel later if needed
+        self.current_goal_handle_ = goal_handle
+
         # Goal accepted: get result when it's completed
-        self.get_logger().warn(f'Goal accepted')
+        self.get_logger().warn('Goal accepted')
         self.goal_start_time_ = self.get_clock().now()
         self.get_result_future_ = goal_handle.get_result_async()
         self.get_result_future_.add_done_callback(self.goal_reached_callback)
-        self.ready_for_next_goal_= False #Locking goals for now
+        self.ready_for_next_goal_ = False
 
 
 
@@ -491,19 +598,27 @@ class CaveExplorer(Node):
 
     def goal_reached_callback(self, future):
         """The requested goal has been reached"""
+        try:
+            result = future.result().result
+        except Exception:
+            result = None
 
-        result = future.result().result
-        self.get_logger().info(f'Goal reached!')
-        self.ready_for_next_goal_ = True
-        self.goal_start_time_ = None
-        self.current_goal_ = None
-        
-        # If inspecting, inspection would be completion
+        self.get_logger().info('Goal reached!')
+        # clear stored handle
+        self.current_goal_handle_ = None
+
+        # If inspecting, start inspection pause (non-blocking) and then mark inspected in resume_after_inspection
         if self.current_behavior_ == "inspection":
+            self.get_logger().info("Reached inspection standoff. Starting inspection pause.")
+            # call handler which will set a timer for 3s
             self.handle_artifact_goal(success=True)
+            # don't set ready_for_next_goal_ True yet — resume_after_inspection will do that
+            self.goal_start_time_ = None
         else:
             # normal exploration goal finished; continue
             self.current_goal_ = None
+            self.ready_for_next_goal_ = True
+            self.goal_start_time_ = None
 
 
 
@@ -599,6 +714,8 @@ class CaveExplorer(Node):
             self.get_logger().warn('Waiting for transform... Have you launched SLAM?')
             return
         
+        planner_str = self.get_parameter('planner_type').value
+        
             # If currently inspecting an artifact
         if self.current_behavior_ == "inspection":
             # Wait until goal is reached or timeout is handled
@@ -614,16 +731,16 @@ class CaveExplorer(Node):
         if self.planner_type_ == PlannerType.RETURN_HOME:
             self.get_logger().info('Returned home!')
             self.returned_home_ = True
+        
 
-        # --- Choose planner based on ROS parameter ---
-        planner_str = self.get_parameter('planner_type').value
-
-        if planner_str == 'frontier_exploration':
+        if planner_str == 'frontier_exploration' and self.current_behavior_ == "exploration":
             self.planner_type_ = PlannerType.FRONTIER_EXPLORATION
         elif planner_str == 'random_goal':
             self.planner_type_ = PlannerType.RANDOM_GOAL
 
-        # --- Run selected planner ---
+        #######################################################
+        # Execute the planner by calling the relevant method
+        # Add your own planners here!
         self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
 
         if self.planner_type_ == PlannerType.FRONTIER_EXPLORATION:
@@ -762,6 +879,7 @@ class CaveExplorer(Node):
 
 
 
+
     def check_goal_timeout(self):
         """Check if the current goal has timed out."""
         if self.goal_start_time_ is None or self.ready_for_next_goal_:
@@ -773,7 +891,6 @@ class CaveExplorer(Node):
         if self.current_behavior_ == "inspection":
             if elapsed > self.goal_timeout_sec_:
                 self.get_logger().warn(f"Inspection goal timeout after {elapsed:.1f}s. Abandoning inspection.")
-                # call failure handler
                 self.handle_artifact_goal(success=False)
             return
 
