@@ -96,6 +96,10 @@ class CaveExplorer(Node):
         # Remember the artifact locations
         # Array of type geometry_msgs.Point
         self.artifact_locations_ = []
+        
+        # Robot pose tracking
+        self.current_pose = Pose2D()
+        self.pose_pub_ = self.create_publisher(Pose2D, 'robot_pose', 10)
 
         # Prepare transformation to get robot pose
         self.tf_buffer = Buffer()
@@ -417,6 +421,11 @@ class CaveExplorer(Node):
         Set the next goal pose and send to the action server
         See https://docs.nav2.org/concepts/index.html
         """
+        # Get and publish current robot pose
+        current_pose = self.get_pose_2d()
+        if current_pose:
+            self.current_pose = current_pose
+            self.pose_pub_.publish(current_pose)
         
         # Don't do anything until SLAM is launched
         if not self.tf_buffer.can_transform(
