@@ -66,15 +66,19 @@ Then the confidence thresholds that categorised a detection was tweaked from the
 My initial approach to this task was to use camera intrinsic and extrinsic values in conjunction with the linear algebra relationship between 2D points on an image, camera matrix and 3D points in the "real world" to do a transform that would allow me to estimate an object's real world coordinates based on its coordinates in an image.
 
 My initial planning involved working with this model:
-![camera_model.png](images/camera_model.png)
+
+<img src="images/camera_model.png" alt="camera_model" width="250"/>
 
 For some reason I got into a rabbit hole trying to find the focal length of the camera since it was not provided in any of hte `xacro` files, whilst horizontal FOV was. So using the below relationship between FOV, focal length and image size:
-![camera_fov.png](images/fov.png)
+
+<img src="images/fov.png" alt="fov" width="250"/>
 
 I went about estimating the focal length:
-![focal_calc.png](images/focal_calc.png)
 
-Numerous internet resources stated to use FOV in radians however comparing my calculations using radians and degrees, the focal length given when using degrees made the most sense.
+<img src="images/focal_calc.png" alt="focal_calc" width="250"/>
+
+
+Numerous internet resources stated to use FOV in radians however comparing my calculations using radians and degrees, the focal length given when using degrees made the most sense (`f = 207.8` vs `f = 19,694.6`).
 
 Eventually however I discovered I could add a plugin to publish the camera's intrinsic and extrinsic values since it came with Gazebo, so the following was added to the `gazebo_bridge_params.yaml` file:
 
@@ -100,6 +104,7 @@ I have struggle ddefining what close means so for the purposes of development I 
 - Create a marker a few meters in the direction of the artefact
 
 The below image demonstrates the general idea:
+
 ![localisation_plan.png](images/localisation_plan.png)
 
 This will then serve as the initial estimate. I then hope to use the depth camera or lidar scanner to refine this estimate, but I am yet to look at the sensor data being received from the depth camera and lidar scanner so this remains an extension goal for Perception.
@@ -108,5 +113,6 @@ This will then serve as the initial estimate. I then hope to use the depth camer
 Some changes were made to allow for better visualisation of the detection process including displaying which target is being tracked. Seen below:
 
 On the backend I made a new data structure to represent an artefact and am working on implementing an algorithm as per below:
+
 ![localisation_dsa.png](images/localisation_dsa.png)
 
