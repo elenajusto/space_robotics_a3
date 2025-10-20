@@ -61,6 +61,8 @@ Then the confidence thresholds that categorised a detection was tweaked from the
 
 
 ## Perception 3 
+
+### Camera Model Localisation Approach
 My initial approach to this task was to use camera intrinsic and extrinsic values in conjunction with the linear algebra relationship between 2D points on an image, camera matrix and 3D points in the "real world" to do a transform that would allow me to estimate an object's real world coordinates based on its coordinates in an image.
 
 My initial planning involved working with this model:
@@ -87,6 +89,8 @@ Eventually however I discovered I could add a plugin to publish the camera's int
 
 I then tried to look for methods to help me do the transform however felt hopeless and tired from pursuing this method.
 
+### Close-Inspection Localisation Approach Planning
+
 So I have switched my approach to instead focus firstly on allowing close-inspection of an artefact with hte intent of doing a proper localisation once the rover is close to the artefact.
 
 I have struggle ddefining what close means so for the purposes of development I am going to do the following:
@@ -96,6 +100,13 @@ I have struggle ddefining what close means so for the purposes of development I 
 - Create a marker a few meters in the direction of the artefact
 
 The below image demonstrates the general idea:
-![close_in_image.png](images/close_in_image.png)
+![localisation_plan.png](images/localisation_plan.png)
 
 This will then serve as the initial estimate. I then hope to use the depth camera or lidar scanner to refine this estimate, but I am yet to look at the sensor data being received from the depth camera and lidar scanner so this remains an extension goal for Perception.
+
+### Close-Inspection Development
+Some changes were made to allow for better visualisation of the detection process including displaying which target is being tracked. Seen below:
+
+On the backend I made a new data structure to represent an artefact and am working on implementing an algorithm as per below:
+![localisation_dsa.png](images/localisation_dsa.png)
+
