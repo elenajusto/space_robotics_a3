@@ -129,6 +129,10 @@ This is how to set the parameters you can change for advanced 1
 ### Advanced 4: Online roadmap construction
 - **Goal**: *Build a navigation roadmap online as the robot explores the Martian cave.*
 
+need to run the launch, then navigate, then the autonomy file. Then you must set the mode paameter with this line:
+ * ros2 param set /cave_explorer_node mode advanced4
+ Otherwise it defaults to just explorering normally and will not publish markers
+
 ### Advanced 5: Persistent monitoring
 - **Goal**: *Repeatedly visit a set of key points in the environment.*
 
