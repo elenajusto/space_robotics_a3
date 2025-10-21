@@ -90,11 +90,6 @@ class ModelRunnerNode(Node):
                     
                     # Get offset between image center and artefact (horizontal distance in pixels)
                     offset = object_image_x - self.center_x
-                    
-                    # Display offset near the middle of the arrow
-                    mid_x = (self.center_x + object_image_x) // 2
-                    mid_y = (self.center_y + object_image_y) // 2
-                    cv2.putText(image, f"offset: {offset}px", (mid_x, mid_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
                     # Add labels 
                     label = f"{class_name} {confidence:.2%}"
