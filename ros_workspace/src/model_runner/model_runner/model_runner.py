@@ -41,25 +41,12 @@ class ModelRunnerNode(Node):
         # Subscribe to RGB camera
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
 
-        # Subscribe to camera intrinsics and extrinsics
-        self.camera_info_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.save_intrinsics, 10)
-
         # Subscribe to robot pose
         self.pose_sub = self.create_subscription(Pose2D, '/robot_pose', self.pose_callback, 10)
 
         # Publisher of annotated images
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
     
-    def save_intrinsics(self, msg):
-        # Guard condition so function only runs once
-        if self.has_camera_info:
-            return 
-        else:
-            # Debug
-            self.get_logger().info('Received camera intrinsics')
-            self.camera_matrix = np.array(msg.k).reshape(3, 3)
-            self.has_camera_info = True
-        
     def pose_callback(self, pose_msg):
         # Debug
         self.get_logger().info('Received robot pose')
@@ -73,7 +60,7 @@ class ModelRunnerNode(Node):
         # Turn received image into cv format
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
         
-         # Draw red circle at image center 
+        # Draw red circle at image center 
         cv2.circle(image, ( self.center_x , self.center_y), 5, (255, 0, 0), -1) 
         cv2.putText(image,"center", ( self.center_x , self.center_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
 
