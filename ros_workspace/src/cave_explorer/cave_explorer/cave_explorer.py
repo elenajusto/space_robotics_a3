@@ -118,7 +118,8 @@ class CaveExplorer(Node):
         # Publisher for roadmap visualization
         self.roadmap_pub_ = self.create_publisher(MarkerArray, 'marker_array_roadmap', 10)
 
-
+        self.seed_grid_spacing_ = 1.0  # meters between grid
+        self.seed_per_cycle_ = 5 # max nodes to add per cycles
 
         # Variables/Flags for mapping
         self.xlim_ = [0.0, 0.0]
@@ -547,18 +548,79 @@ class CaveExplorer(Node):
        # The map_data_ array is stored in row-major order, so we need to calculate the index
        # by multiplying the row index (iy) by the width of the map (map_width_) and adding the column index (ix).
 
-    def _world_to_grid(self, x, y):
+    def _world_to_grid(self, x, y): 
         ix = int((x - self.map_origin_.position.x) / self.map_resolution_)
         iy = int((y - self.map_origin_.position.y) / self.map_resolution_)
         return ix, iy
+
+    def _grid_to_world(self, ix, iy):
+        x = self.map_origin_.position.x + (ix + 0.5) * self.map_resolution_ #the 0.5 is to get the center of the cell
+        y = self.map_origin_.position.y + (iy + 0.5) * self.map_resolution_
+        return x, y
+    
+    #used this to find the nearest existing node to the xy position
+    def _nearest_node_dist(self, x, y):
+        if not self.road_nodes_:
+            return float('inf'), None
+        best_d = float('inf')
+        best_idx = None
+        for i, (nx, ny) in enumerate(self.road_nodes_):
+            d = math.hypot(x - nx, y - ny)
+            if d < best_d:
+                best_d, best_idx = d, i
+        return best_d, best_idx
+
+    def _seed_unreached_free_areas(self):
+        """Add roadmap nodes in observed but unreached free cells."""
+        if not hasattr(self, 'map_data_') or self.map_resolution_ <= 0:
+            return
+
+        # Convert spacing from meters to grid cells
+        step_cells = max(1, int(self.seed_grid_spacing_ / self.map_resolution_))
+        added = 0
+
+        if not self.road_nodes_:
+            return  # Wait until we have a node from robot motion
+
+        for iy in range(0, self.map_height_, step_cells):
+            for ix in range(0, self.map_width_, step_cells):
+                if added >= self.seed_per_cycle_:
+                    return
+
+                occ = self._grid_at(ix, iy)
+                if occ != 0:  # only perfectly free cells
+                    continue
+
+                xw, yw = self._grid_to_world(ix, iy)
+                d, nn_idx = self._nearest_node_dist(xw, yw)
+                if d < self.roadmap_node_spacing_:
+                    continue
+
+                # check LOS to nearest node
+                if nn_idx is None:
+                    continue
+                nx, ny = self.road_nodes_[nn_idx]
+                if not self._los_free(xw, yw, nx, ny):
+                    continue
+
+                # add node and connect
+                self.road_nodes_.append((xw, yw))
+                new_idx = len(self.road_nodes_) - 1
+                self._try_connect_edges_from(new_idx)
+                self._roadmap_dirty_ = True
+                added += 1
+
+        if added > 0:
+            self._publish_roadmap()
+
+
     
     def _los_free(self, x1, y1, x2, y2):
-        """
-        Line-of-sight check between two world coordinates using Bresenham's algorithm on the occupancy grid.
+        #Check the line-of-sight betwee the two wold coordinatesusing the beewssmans algorithm on the occupancy gird.
+        #it should retun true if every gird cell along the discrete line between (x1,y1) and (x2,y2) has an occupancy that is less than the set threahold (whihc is currently 50)
+        #will return a big fat false is the map has something blocking the LOS, so there is something in the way and the threshold isnt met.
+        #also if the mapdata isnt there.
 
-        Returns True if every grid cell along the discrete line between (x1,y1) and (x2,y2) has occupancy <= roadmap_occ_thresh_.
-        Returns False if the map is not available or any cell is considered occupied.
-        """
         # Ensure we have a map to work with
         if not hasattr(self, 'map_data_'):
             return False
@@ -675,8 +737,9 @@ class CaveExplorer(Node):
 
         self.get_logger().info("Roadmap Markers Published.")
 
+
     def roadmap_update(self): #this should be called a few time a second when the planner type is correct
-        # need map + tf
+
         if not hasattr(self, 'map_data_'):
             return
         if not self.tf_buffer.can_transform('map', 'base_link', rclpy.time.Time()):
@@ -691,8 +754,11 @@ class CaveExplorer(Node):
         if len(self.road_nodes_) != prev_count:
             # new node → try KNN edges from the new node
             self._try_connect_edges_from(self._last_node_idx_)
-        # publish if changed
+
         self._publish_roadmap()
+        self._seed_unreached_free_areas()
+
+
 
     ###########################################################################################
     ############################### End of stuff for advaNCED 4########################

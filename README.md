@@ -133,6 +133,11 @@ need to run the launch, then navigate, then the autonomy file. Then you must set
  * ros2 param set /cave_explorer_node mode advanced4
  Otherwise it defaults to just explorering normally and will not publish markers
 
+ if you dont want to launch the autonomy thing and drive it around yourself. launch the gazebo launch file. then the navigate file. Then run this line:
+  * ros2 run cave_explorer cave_explorer --ros-args -p mode:=advanced4
+Then this so you can move the robot around manually:
+   * ros2 run teleop_twist_keyboard teleop_twist_keyboard
+
 ### Advanced 5: Persistent monitoring
 - **Goal**: *Repeatedly visit a set of key points in the environment.*
 
