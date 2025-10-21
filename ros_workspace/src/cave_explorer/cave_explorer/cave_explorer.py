@@ -329,19 +329,19 @@ class CaveExplorer(Node):
     def plan_inspection_goal(self):
         """Generate and send a close-range (standoff) goal near the selected artifact."""
         if not self.selected_artifact_:
-            self.get_logger().warn("plan_inspection_goal: no selected artifact.")
+            self.get_logger().warn("plan_inspection_goal: no selected artifact Switching back to exploration.")
             self.current_behavior_ = "exploration"
             return
 
         artifact_point = self.selected_artifact_
         robot_pose = self.get_pose_2d()
         if robot_pose is None:
-            self.get_logger().warn("No robot pose available for inspection.")
+            self.get_logger().warn("No robot pose available for inspection. Switching back to exploration")
             self.current_behavior_ = "exploration"
             return
 
-        dx = artifact_point.x - robot_pose.x
-        dy = artifact_point.y - robot_pose.y
+        dx = artifact_point.x #- robot_pose.x
+        dy = artifact_point.y #- robot_pose.y
         angle = math.atan2(dy, dx)
 
         goal_x = artifact_point.x - self.standoff_distance_ * math.cos(angle)
@@ -351,13 +351,12 @@ class CaveExplorer(Node):
         self.get_logger().warn(f"Inspection goal: ({goal_x:.2f}, {goal_y:.2f}), yaw={goal_yaw:.2f}")
         goal_pose = Pose2D(x=goal_x, y=goal_y, theta=goal_yaw)
 
-        # switch behavior and send the goal using existing planner function
-        self.current_behavior_ = "inspection"
+        # send the goal using existing planner function
         self.inspection_goal_sent_ = True
 
         # If currently travelling to a frontier goal, cancel it so we can preempt
         if not self.ready_for_next_goal_:
-            self.get_logger().info("Cancelling current frontier goal to preempt for inspection...")
+            self.get_logger().info("Cancelling current frontier goal for inspection...")
             self.cancel_current_goal()
 
         # force sending the inspection goal even if ready flag was false momentarily
@@ -487,31 +486,46 @@ class CaveExplorer(Node):
         # Compute the location of the artifact
         # This is currently INCOMPLETE
         point = Point()
-        point.x = robot_pose.x + 2 # Forcing a fake location for artifacts
-        point.y = robot_pose.y + 2
+        # point.x = robot_pose.x + 2 
+        # point.y = robot_pose.y + 2
+        point.x = 18.1 # Forcing a fake location for artifacts
+        point.y = 6.6 
         point.z = 1.0
+        
+
+        skip_artifact = False
 
         # check duplicates to not inspect artifatcs already inspected
         for a in self.inspected_artifacts_:
-            if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
-                self.get_logger().info("Detected artifact already inspected.")  
+            # if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
+            if point == a:
+                self.get_logger().info("Detected artifact already inspected. Skipping artifact.")  
                 self.publish_inspected_artifact_markers()
+                skip_artifact = True
                 return
 
         #Will add to locations
         for a in self.artifact_locations_:
-            if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
-                self.get_logger().info("Artifact already recorded")
+            # if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
+            if point == a:
+                self.get_logger().info("Artifact already recorded. Skipping artifact.")
+                skip_artifact = True
                 return
 
         # Save approx artifact location and publish markers
-        self.artifact_locations_.append(point)
+        
         self.publish_artifact_markers()
         
 
         # select this artifact to inspect and plan approach
         self.selected_artifact_ = point
-        self.plan_inspection_goal()
+
+        if not skip_artifact:
+            #Setting behavious as inspection as artifact should be inspected
+            self.artifact_locations_.append(point)
+            self.current_behavior_ = "inspection"
+            self.get_logger().info("New artifact detect, switching to inspection mode.")
+            self.plan_inspection_goal()
 
 
     def publish_artifact_markers(self):
@@ -882,6 +896,7 @@ class CaveExplorer(Node):
 
     def check_goal_timeout(self):
         """Check if the current goal has timed out."""
+        inspection_timeout_placeholder = 25
         if self.goal_start_time_ is None or self.ready_for_next_goal_:
             return
 
@@ -889,7 +904,7 @@ class CaveExplorer(Node):
 
         # If we are inspecting, timeout should cancel inspection
         if self.current_behavior_ == "inspection":
-            if elapsed > self.goal_timeout_sec_:
+            if elapsed > inspection_timeout_placeholder:
                 self.get_logger().warn(f"Inspection goal timeout after {elapsed:.1f}s. Abandoning inspection.")
                 self.handle_artifact_goal(success=False)
             return
