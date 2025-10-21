@@ -3,8 +3,6 @@
 import math
 import random
 from enum import Enum
-import numpy as np
-from scipy.ndimage import label, center_of_mass
 
 import cv2  # OpenCV2
 import rclpy
@@ -273,7 +271,6 @@ class CaveExplorer(Node):
         # with a mutex
         # "artifact_found_" doesn't need a mutex because it's an atomic
         num_detections = len(detections)
-        
 
         if num_detections > 0:
             self.artifact_found_ = True
@@ -601,8 +598,6 @@ class CaveExplorer(Node):
         self.get_result_future_.add_done_callback(self.goal_reached_callback)
         self.ready_for_next_goal_ = False
 
-
-
     def feedback_callback(self, feedback_msg):
         """Monitor the feedback from the action server"""
 
@@ -633,8 +628,6 @@ class CaveExplorer(Node):
             self.current_goal_ = None
             self.ready_for_next_goal_ = True
             self.goal_start_time_ = None
-
-
 
 
     def planner_move_forwards(self, distance):
@@ -720,12 +713,13 @@ class CaveExplorer(Node):
         Set the next goal pose and send to the action server
         See https://docs.nav2.org/concepts/index.html
         """
-
-        """Main decision loop"""
-        self.get_logger().debug(f'Loop running; planner_type = {self.planner_type_}, parameter = {self.get_parameter("planner_type").value}')
-
-        if not self.tf_buffer.can_transform('map', 'base_link', rclpy.time.Time()):
-            self.get_logger().warn('Waiting for transform... Have you launched SLAM?')
+        
+        # Don't do anything until SLAM is launched
+        if not self.tf_buffer.can_transform(
+                'map',
+                'base_link',
+                rclpy.time.Time()):
+            self.get_logger().warn('Waiting for transform... Have you launched a SLAM node?')
             return
         
         planner_str = self.get_parameter('planner_type').value
@@ -735,15 +729,21 @@ class CaveExplorer(Node):
             # Wait until goal is reached or timeout is handled
             return
 
+        #######################################################
+        # Update flags related to the progress of the current planner
+
+        # Check if previous goal still running
         if not self.ready_for_next_goal_:
+            # self.get_logger().info(f'Previous goal still running')
             return
 
-        # --- Progress flags ---
+        self.ready_for_next_goal_ = False
+
         if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
-            self.get_logger().info('Reached first artifact!')
+            self.get_logger().info('Successfully reached first artifact!')
             self.reached_first_artifact_ = True
         if self.planner_type_ == PlannerType.RETURN_HOME:
-            self.get_logger().info('Returned home!')
+            self.get_logger().info('Successfully returned home!')
             self.returned_home_ = True
         
 
@@ -759,14 +759,16 @@ class CaveExplorer(Node):
 
         if self.planner_type_ == PlannerType.FRONTIER_EXPLORATION:
             self.planner_frontier_exploration()
-        elif self.planner_type_ == PlannerType.RANDOM_GOAL:
-            self.planner_random_goal()
         elif self.planner_type_ == PlannerType.MOVE_FORWARDS:
             self.planner_move_forwards(10)
         elif self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
             self.planner_go_to_first_artifact()
         elif self.planner_type_ == PlannerType.RETURN_HOME:
             self.planner_return_home()
+        elif self.planner_type_ == PlannerType.RANDOM_WALK:
+            self.planner_random_walk()
+        elif self.planner_type_ == PlannerType.RANDOM_GOAL:
+            self.planner_random_goal()
         else:
             self.get_logger().error('No valid planner selected')
             self.destroy_node()
@@ -879,14 +881,14 @@ class CaveExplorer(Node):
             self.ready_for_next_goal_ = True
             return
 
-        # Publish for RViz visualisation
-        self.publish_frontier_markers(frontiers)
+    # Publish RViz markers for visualisation
+    self.publish_frontier_markers(frontiers)
 
         # Choose next goal
         goal = self.choose_frontier_goal(frontiers, robot_pose)
 
+    if goal:
         self.get_logger().info(f"Exploring frontier at ({goal[0]:.2f}, {goal[1]:.2f})")
-
         goal_pose = Pose2D(x=goal[0], y=goal[1], theta=0.0)
         self.current_goal_ = goal_pose
         self.planner_go_to_pose2d(goal_pose)
@@ -939,6 +941,25 @@ class CaveExplorer(Node):
         marker_array.markers = [marker]
         self.marker_pub_.publish(marker_array)
 
+def publish_frontier_markers(self, frontiers):
+    """Visualise detected frontier points in RViz"""
+    marker = Marker()
+    marker.header.frame_id = "map"
+    marker.ns = "frontiers"
+    marker.id = 1
+    marker.type = Marker.POINTS
+    marker.action = Marker.ADD
+    marker.scale.x = 0.3
+    marker.scale.y = 0.3
+    marker.color.a = 1.0
+    marker.color.r = 0.0
+    marker.color.g = 0.0
+    marker.color.b = 1.0
+    marker.points = [Point(x=f[0], y=f[1], z=0.0) for f in frontiers]
+
+    marker_array = MarkerArray()
+    marker_array.markers = [marker]
+    self.marker_pub_.publish(marker_array)
 
 
 def main():
@@ -950,3 +971,26 @@ def main():
 
     while rclpy.ok():
         rclpy.spin(cave_explorer)
+
+#######################################################
+# Select the next planner to execute
+
+self.planner_type_ = PlannerType.FRONTIER_EXPLORATION
+#######################################################
+# Execute the planner
+self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
+if self.planner_type_ == PlannerType.FRONTIER_EXPLORATION:
+    self.planner_frontier_exploration()
+elif self.planner_type_ == PlannerType.MOVE_FORWARDS:
+    self.planner_move_forwards(10)
+elif self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
+    self.planner_go_to_first_artifact()
+elif self.planner_type_ == PlannerType.RETURN_HOME:
+    self.planner_return_home()
+elif self.planner_type_ == PlannerType.RANDOM_WALK:
+    self.planner_random_walk()
+elif self.planner_type_ == PlannerType.RANDOM_GOAL:
+    self.planner_random_goal()
+else:
+    self.get_logger().error('No valid planner selected')
+    self.destroy_node()
