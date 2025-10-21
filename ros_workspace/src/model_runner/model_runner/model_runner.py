@@ -1,13 +1,20 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
-
+from geometry_msgs.msg import Pose2D, PoseStamped
+import numpy as np
 from ultralytics import YOLO
 import cv2
-import numpy as np
-import os
+
+class Artefact:
+    def __init__(self, objectType: str, offset: int, tracking: bool, localised: bool, estimated_location: Pose2D, detected_location: Pose2D):
+        self.objectType = objectType
+        self.offset = offset
+        self.tracking = tracking
+        self.localised = localised
+        self.estimated_location = estimated_location
+        self.detected_location = detected_location
 
 class ModelRunnerNode(Node):
     def __init__(self):
@@ -16,69 +23,128 @@ class ModelRunnerNode(Node):
         # Initialise CvBridge
         self.cv_bridge_ = CvBridge()
 
-        # Publisher
-        self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
- 
         # Initialise the YOLO model
-        model_path = "src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
+        #model_path = "/home/ros2_ws/src/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
+        model_path = "/home/student/ros2_ws/src/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt"
         self.model = YOLO(model_path)
 
-        # Test subscription
-        self.subscription = self.create_subscription(String, 'topic', self.listener_callback, 10)
+        # Initialise camera parameters
+        self.camera_matrix = None
+        self.has_camera_info = False
 
-        # Camera sensor subscription
+        # Initiliise image paramters
+        self.center_x = 360 # Hardcoded
+        self.center_y = 240 # Hardcoded
+        
+        # Initiliise Robot state
+        self.current_pose = Pose2D        
+        
+        # Initiliise Artefact tracking
+        self.artefact_detected = False      # will serve as tracking flag
+        self.artefact_list = None
+        
+        # Subscribe to RGB camera
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
 
-    def listener_callback(self, msg):
-        # As a test listen to our minal publisher
-        self.get_logger().info('I heard: "%s"' % msg.data)
+        # Subscribe to camera intrinsics and extrinsics
+        self.camera_info_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.save_intrinsics, 10)
 
-    def image_callback(self, msg):
-        # Test listen for images
-        image = self.cv_bridge_.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        # Subscribe to robot pose
+        self.pose_sub = self.create_subscription(Pose2D, '/robot_pose', self.pose_callback, 10)
 
+        # Publisher of annotated images
+        self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
+    
+    def save_intrinsics(self, msg):
+        # Guard condition so function only runs once
+        if self.has_camera_info:
+            return 
+        else:
+            # Debug
+            self.get_logger().info('Received camera intrinsics')
+            self.camera_matrix = np.array(msg.k).reshape(3, 3)
+            self.has_camera_info = True
+        
+    def pose_callback(self, pose_msg):
         # Debug
-        self.get_logger().info('Image detected')
+        self.get_logger().info('Received robot pose')
+        self.current_pose = pose_msg
+    
+    def image_callback(self, image_msg):
+        
+        # Debug
+        self.get_logger().info('Image received from camera')
+    
+        # Turn received image into cv format
+        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
+        
+         # Draw red circle at image center 
+        cv2.circle(image, ( self.center_x , self.center_y), 5, (255, 0, 0), -1) 
+        cv2.putText(image,"center", ( self.center_x , self.center_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
 
-        # Call the yolo model on the image
-        self.execute_model(image)
+        # Execute computer vision model
+        results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
 
-    def execute_model(self, image):
-        results = self.model(image)
-
+        # Process detection
         for result in results:
-
-            # Boxes object for bounding box outputs
-            boxes = result.boxes  
-
-            # Get name of detected object
-            for box in boxes:
-                class_id = int(box.cls)
-                class_name = self.model.names[class_id]
-                self.get_logger().info('class_name: "%s"' % class_name)
-
-            # Get bounding box of detected object
+            # Process computer vision model results
+            boxes = result.boxes                            
             number_of_boxes = len(boxes.xywh)
             if number_of_boxes > 0:
-                for box in range(number_of_boxes):
-                    self.get_logger().info('box: "%s"' % boxes.xywh[box])
 
-                    x = int(boxes.xywh[box][0])
-                    y = int(boxes.xywh[box][1])
-                    width = int(boxes.xywh[box][2])
-                    height = int(boxes.xywh[box][3])
+                # Process given box and allocate to an artefact
+                for i in range(number_of_boxes):
+                    class_id = int(boxes.cls[i])
+                    class_name = self.model.names[class_id]
+                    confidence = float(boxes.conf[i])
+                    object_image_x = int(boxes.xywh[i][0])
+                    object_image_y = int(boxes.xywh[i][1])
+                    
+                    # Create dot on detected object
+                    cv2.circle(image, (object_image_x, object_image_y), 5, (0, 255, 0), -1)
+                    
+                    # Draw arrow from center of camera to detected object
+                    cv2.arrowedLine(image, (self.center_x, self.center_y), (object_image_x, object_image_y), (0, 255, 0), 2, cv2.LINE_AA, tipLength=0.2) 
+                    
+                    # Get offset between image center and artefact (horizontal distance in pixels)
+                    offset = object_image_x - self.center_x
+                    
+                    # Display offset near the middle of the arrow
+                    mid_x = (self.center_x + object_image_x) // 2
+                    mid_y = (self.center_y + object_image_y) // 2
+                    cv2.putText(image, f"offset: {offset}px", (mid_x, mid_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-                    self.get_logger().info('x: "%s"' % x)
-                    self.get_logger().info('y: "%s"' % y)
-                    self.get_logger().info('width: "%s"' % width)
-                    self.get_logger().info('height: "%s"' % height)
+                    # Add labels 
+                    label = f"{class_name} {confidence:.2%}"
+                    cv2.putText(image, label, (object_image_x, object_image_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-                    # Draw bounding box
-                    cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+                    # Create artefact object
+                    newArtefact = Artefact(class_name, offset, False, False, Pose2D(), Pose2D())
+                    
+                    # Debug offset information
+                    self.get_logger().info(f'Artefact offset from center: {offset} pixels')
 
-                    # Publish the image with the detection bounding boxes
-                    image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
-                    self.image_detections_pub_.publish(image_detection_message)
+                    self.inspect(newArtefact)
+                    
+        # Re-convert processed cv image to ros format
+        image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
+
+        # Publish annotated image back to ros
+        self.image_detections_pub_.publish(image_detection_message)
+
+    def inspect(self, artefact: Artefact):
+
+        # Update detected artefact's parameters
+        artefact.detected_location = self.current_pose
+        artefact.tracking = True
+        artefact.localised = False
+
+        # Debug Information on the artefact
+        self.get_logger().info(f'Artefact Type: {artefact.objectType}')
+        self.get_logger().info(f'Artefact Offset: {artefact.offset}')
+        self.get_logger().info(f'Artefact detection x: {artefact.detected_location.x}')
+        self.get_logger().info(f'Artefact detection y: {artefact.detected_location.y}')
+        self.get_logger().info(f'Artefact detection theta: {artefact.detected_location.theta}')
 
 def main(args=None):
     rclpy.init(args=args)
@@ -92,3 +158,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+

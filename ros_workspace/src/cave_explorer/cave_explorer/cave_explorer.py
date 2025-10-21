@@ -23,6 +23,7 @@ from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
 
+
 def wrap_angle(angle):
     """Function to wrap an angle between 0 and 2*Pi"""
     while angle < 0.0:
@@ -56,10 +57,63 @@ class PlannerType(Enum):
 
     FRONTIER_EXPLORATION = 6
 
+    Advanced4 = 20
+
 
 class CaveExplorer(Node):
     def __init__(self):
         super().__init__('cave_explorer_node')
+
+        self.declare_parameter('mode', 'advanced4') #THIS SHOULD HAVE ADVANCED 4, PLANNER 1, 2, 3 (OR WHATEVER WE CALL THEM)
+
+        # ===== Advanced 4: Online Roadmap Construction =====
+        self.declare_parameter('roadmap_node_spacing', 0.4)   # meters between added nodes
+        self.declare_parameter('roadmap_knn_k', 3)            # connect to K nearest neighbors
+        self.declare_parameter('roadmap_edge_radius', 5)    # max distance to try edges
+        self.declare_parameter('roadmap_occ_thresh', 50)      # occupancy threshold [0..100]
+
+        self.roadmap_node_spacing_ = float(self.get_parameter('roadmap_node_spacing').value)
+        self.roadmap_knn_k_        = int(self.get_parameter('roadmap_knn_k').value)
+        self.roadmap_edge_radius_  = float(self.get_parameter('roadmap_edge_radius').value)
+        self.roadmap_occ_thresh_   = int(self.get_parameter('roadmap_occ_thresh').value)
+
+        # storage for advanced 4
+        self.road_nodes_ = []      # [(x,y)]
+        self.road_edges_ = []      # [(i,j)]
+        self._last_node_idx_ = None
+        self._roadmap_dirty_ = False
+
+        # markers used in the advanced 4 stuff
+        self.road_nodes_marker_ = Marker()
+        self.road_nodes_marker_.header.frame_id = "map"
+        self.road_nodes_marker_.ns   = "roadmap"
+        self.road_nodes_marker_.id   = 100
+        self.road_nodes_marker_.type = Marker.POINTS
+        self.road_nodes_marker_.action = Marker.ADD
+        self.road_nodes_marker_.scale.x = 0.25
+        self.road_nodes_marker_.scale.y = 0.25
+        self.road_nodes_marker_.color.a = 1.0
+        self.road_nodes_marker_.color.r = 1.0
+        self.road_nodes_marker_.color.g = 1.0
+        self.road_nodes_marker_.color.b = 0.0
+
+        self.road_edges_marker_ = Marker()
+        self.road_edges_marker_.header.frame_id = "map"
+        self.road_edges_marker_.ns   = "roadmap"
+        self.road_edges_marker_.id   = 101
+        self.road_edges_marker_.type = Marker.LINE_LIST
+        self.road_edges_marker_.action = Marker.ADD
+        self.road_edges_marker_.scale.x = 0.08
+        self.road_edges_marker_.color.a = 1.0
+        self.road_edges_marker_.color.r = 0.2
+        self.road_edges_marker_.color.g = 0.6
+        self.road_edges_marker_.color.b = 1.0
+
+        # Publisher for roadmap visualization
+        self.roadmap_pub_ = self.create_publisher(MarkerArray, 'marker_array_roadmap', 10)
+
+        self.seed_grid_spacing_ = 1.0  # meters between grid
+        self.seed_per_cycle_ = 5 # max nodes to add per cycles
 
         # Variables/Flags for mapping
         self.xlim_ = [0.0, 0.0]
@@ -221,23 +275,34 @@ class CaveExplorer(Node):
     def map_callback(self, map_msg: OccupancyGrid):
         """New map received, so update x and y limits"""
 
-        # Extract data from message
-        map_origin = [map_msg.info.origin.position.x, 
-                      map_msg.info.origin.position.y]
-        map_resolution = map_msg.info.resolution
-        map_height = map_msg.info.height
-        map_width = map_msg.info.width
+        # # Extract data from message
+        # map_origin = [map_msg.info.origin.position.x, 
+        #               map_msg.info.origin.position.y]
+        # map_resolution = map_msg.info.resolution
+        # map_height = map_msg.info.height
+        # map_width = map_msg.info.width
 
-        # Set current limits
-        self.xlim_ = [map_origin[0], map_origin[0]+map_width*map_resolution]
-        self.ylim_ = [map_origin[1], map_origin[1]+map_height*map_resolution]
+        # # Set current limits
+        # self.xlim_ = [map_origin[0], map_origin[0]+map_width*map_resolution]
+        # self.ylim_ = [map_origin[1], map_origin[1]+map_height*map_resolution]
 
-            # Extract map info
+        #     # Extract map info
+        # self.map_origin_ = map_msg.info.origin
+        # self.map_resolution_ = map_msg.info.resolution
+        # self.map_height_ = map_msg.info.height
+        # self.map_width_ = map_msg.info.width
+        # self.map_data_ = map_msg.data  # store the occupancy grid values
+
+                # Extract data from message
         self.map_origin_ = map_msg.info.origin
         self.map_resolution_ = map_msg.info.resolution
         self.map_height_ = map_msg.info.height
         self.map_width_ = map_msg.info.width
-        self.map_data_ = map_msg.data  # store the occupancy grid values
+        self.map_data_ = map_msg.data
+
+        # Set current limits
+        self.xlim_ = [self.map_origin_.position.x, self.map_origin_.position.x + self.map_width_ * self.map_resolution_]
+        self.ylim_ = [self.map_origin_.position.y, self.map_origin_.position.y + self.map_height_ * self.map_resolution_]
 
 
         # self.get_logger().warn('Map received:')
@@ -596,7 +661,7 @@ class CaveExplorer(Node):
             self.get_logger().info("Reached inspection standoff. Starting inspection pause.")
             # call handler which will set a timer for 3s
             self.handle_artifact_goal(success=True)
-            # don't set ready_for_next_goal_ True yet — resume_after_inspection will do that
+            # don't set ready_for_next_goal_ True yet
             self.goal_start_time_ = None
         else:
             # normal exploration goal finished; continue
@@ -692,10 +757,16 @@ class CaveExplorer(Node):
         """
 
         """Main decision loop"""
+        mode = self.get_parameter('mode').get_parameter_value().string_value.lower()
+
         self.get_logger().debug(f'Loop running; planner_type = {self.planner_type_}, parameter = {self.get_parameter("planner_type").value}')
 
         if not self.tf_buffer.can_transform('map', 'base_link', rclpy.time.Time()):
             self.get_logger().warn('Waiting for transform... Have you launched SLAM?')
+            return
+
+        if mode == 'advanced4':
+            self.roadmap_update()
             return
         
         planner_str = self.get_parameter('planner_type').value
@@ -908,6 +979,229 @@ class CaveExplorer(Node):
         marker_array = MarkerArray()
         marker_array.markers = [marker]
         self.marker_pub_.publish(marker_array)
+
+    #####################################################################################################
+    #################### ADVANCED 4 FUNCTIONS TO BUILD ONLINE ROADMAP ##################################
+    #####################################################################################################
+
+    def _grid_at(self, ix, iy): #check if the position is in the map
+        if ix < 0 or iy < 0 or ix >= self.map_width_ or iy >= self.map_height_:
+            return 100  # out of map = blocked
+        return self.map_data_[iy*self.map_width_ + ix]  ##why is this calculation done like this?
+       # This is done to convert the 2D grid coordinates (ix, iy) into a 1D array index.
+       # The map_data_ array is stored in row-major order, so we need to calculate the index
+       # by multiplying the row index (iy) by the width of the map (map_width_) and adding the column index (ix).
+
+    def _world_to_grid(self, x, y): 
+        ix = int((x - self.map_origin_.position.x) / self.map_resolution_)
+        iy = int((y - self.map_origin_.position.y) / self.map_resolution_)
+        return ix, iy
+
+    def _grid_to_world(self, ix, iy):
+        x = self.map_origin_.position.x + (ix + 0.5) * self.map_resolution_ #the 0.5 is to get the center of the cell
+        y = self.map_origin_.position.y + (iy + 0.5) * self.map_resolution_
+        return x, y
+    
+    #used this to find the nearest existing node to the xy position
+    def _nearest_node_dist(self, x, y):
+        if not self.road_nodes_:
+            return float('inf'), None
+        best_d = float('inf')
+        best_idx = None
+        for i, (nx, ny) in enumerate(self.road_nodes_):
+            d = math.hypot(x - nx, y - ny)
+            if d < best_d:
+                best_d, best_idx = d, i
+        return best_d, best_idx
+
+    def _seed_unreached_free_areas(self):
+        """Add roadmap nodes in observed but unreached free cells."""
+        if not hasattr(self, 'map_data_') or self.map_resolution_ <= 0:
+            return
+
+        # Convert spacing from meters to grid cells
+        step_cells = max(1, int(self.seed_grid_spacing_ / self.map_resolution_))
+        added = 0
+
+        if not self.road_nodes_:
+            return  # Wait until we have a node from robot motion
+
+        for iy in range(0, self.map_height_, step_cells):
+            for ix in range(0, self.map_width_, step_cells):
+                if added >= self.seed_per_cycle_:
+                    return
+
+                occ = self._grid_at(ix, iy)
+                if occ != 0:  # only perfectly free cells
+                    continue
+
+                xw, yw = self._grid_to_world(ix, iy)
+                d, nn_idx = self._nearest_node_dist(xw, yw)
+                if d < self.roadmap_node_spacing_:
+                    continue
+
+                # check LOS to nearest node
+                if nn_idx is None:
+                    continue
+                nx, ny = self.road_nodes_[nn_idx]
+                if not self._los_free(xw, yw, nx, ny):
+                    continue
+
+                # add node and connect
+                self.road_nodes_.append((xw, yw))
+                new_idx = len(self.road_nodes_) - 1
+                self._try_connect_edges_from(new_idx)
+                self._roadmap_dirty_ = True
+                added += 1
+
+        if added > 0:
+            self._publish_roadmap()
+
+
+    
+    def _los_free(self, x1, y1, x2, y2):
+        #Check the line-of-sight betwee the two wold coordinatesusing the beewssmans algorithm on the occupancy gird.
+        #it should retun true if every gird cell along the discrete line between (x1,y1) and (x2,y2) has an occupancy that is less than the set threahold (whihc is currently 50)
+        #will return a big fat false is the map has something blocking the LOS, so there is something in the way and the threshold isnt met.
+        #also if the mapdata isnt there.
+
+        # Ensure we have a map to work with
+        if not hasattr(self, 'map_data_'):
+            return False
+        # Convert world coordinates to integer grid indices
+        ix1, iy1 = self._world_to_grid(x1, y1)
+        ix2, iy2 = self._world_to_grid(x2, y2)
+
+        # Bresmans algorythm gotten from online. Need all the comments to remmebr whats happening
+        #https://www.roguebasin.com/index.php?title=Bresenham%27s_Line_Algorithm#Python
+
+        # dx is the absolute difference in x indices
+        dx = abs(ix2 - ix1)
+        # dy is the negative absolute difference in y indices (algorithm convention)
+        dy = -abs(iy2 - iy1)
+        # Step direction for x and y (either +1 or -1)
+        sx = 1 if ix1 < ix2 else -1
+        sy = 1 if iy1 < iy2 else -1
+        # The error term used by Bresenham
+        err = dx + dy
+
+        # Start from the first grid cell
+        x, y = ix1, iy1
+
+        # Walk the grid cells from (ix1,iy1) to (ix2,iy2)
+        while True:
+            # If the cell occupancy is above threshold, line-of-sight is blocked
+            if self._grid_at(x, y) > self.roadmap_occ_thresh_:
+                return False
+
+            # If we've reached the target cell, the line is free
+            if x == ix2 and y == iy2:
+                break
+
+            # Double the error to decide which way to step
+            e2 = 2 * err
+            # Step in x if warranted
+            if e2 >= dy:
+                err += dy
+                x += sx
+            # Step in y if warranted
+            if e2 <= dx:
+                err += dx
+                y += sy
+
+        # No blocking cells found along the line
+        return True
+
+    def _maybe_add_node(self, pose: Pose2D): # Add a node at the robot pose if spaced far enough from last node.
+        if len(self.road_nodes_) == 0:
+            self.road_nodes_.append((pose.x, pose.y))
+            self._last_node_idx_ = 0
+            self._roadmap_dirty_ = True
+            return
+
+        lastx, lasty = self.road_nodes_[self._last_node_idx_]
+        d = math.hypot(pose.x - lastx, pose.y - lasty)
+        if d >= self.roadmap_node_spacing_:
+            self.road_nodes_.append((pose.x, pose.y))
+            self._last_node_idx_ = len(self.road_nodes_) - 1
+            self._roadmap_dirty_ = True
+
+    def _try_connect_edges_from(self, idx):
+        """KNN connections with LOS check."""
+        if idx is None: return
+        x, y = self.road_nodes_[idx]
+        # candidates within radius
+        dists = []
+        for j, (xj, yj) in enumerate(self.road_nodes_):
+            if j == idx: continue
+            dist = math.hypot(x - xj, y - yj)
+            if dist <= self.roadmap_edge_radius_:
+                dists.append((dist, j))
+        dists.sort(key=lambda t: t[0])
+        added = 0
+        for _, j in dists:
+            if added >= self.roadmap_knn_k_:
+                break
+            # avoid duplicate edge
+            if (idx, j) in self.road_edges_ or (j, idx) in self.road_edges_:
+                continue
+            xj, yj = self.road_nodes_[j]
+            if self._los_free(x, y, xj, yj):
+                self.road_edges_.append((idx, j))
+                added += 1
+                self._roadmap_dirty_ = True
+
+    def _publish_roadmap(self):
+        self.get_logger().warn('Publishing roadmap...')
+        if not self._roadmap_dirty_:
+            return
+        # nodes
+        self.get_logger().info(f"Publishing roadmap: {len(self.road_nodes_)} nodes, {len(self.road_edges_)} edges")
+
+        self.road_nodes_marker_.points = []
+        for (x,y) in self.road_nodes_:
+            p = Point(); p.x = x; p.y = y; p.z = 0.0
+            self.road_nodes_marker_.points.append(p)
+
+        # edges (LINE_LIST expects pairs of points)
+        self.road_edges_marker_.points = []
+        for (i,j) in self.road_edges_:
+            p1 = Point(); p1.x, p1.y, p1.z = self.road_nodes_[i][0], self.road_nodes_[i][1], 0.0
+            p2 = Point(); p2.x, p2.y, p2.z = self.road_nodes_[j][0], self.road_nodes_[j][1], 0.0
+            self.road_edges_marker_.points.extend([p1,p2])
+
+        arr = MarkerArray()
+        # update headers
+        now = self.get_clock().now().to_msg()
+        self.road_nodes_marker_.header.stamp = now
+        self.road_edges_marker_.header.stamp = now
+        arr.markers = [self.road_nodes_marker_, self.road_edges_marker_]
+        self.roadmap_pub_.publish(arr)
+        self._roadmap_dirty_ = False
+
+        self.get_logger().info("Roadmap Markers Published.")
+
+
+    def roadmap_update(self): #this should be called a few time a second when the planner type is correct
+
+        if not hasattr(self, 'map_data_'):
+            return
+        if not self.tf_buffer.can_transform('map', 'base_link', rclpy.time.Time()):
+            return
+        pose = self.get_pose_2d()
+        if pose is None:
+            return
+
+        # add node if spaced
+        prev_count = len(self.road_nodes_)
+        self._maybe_add_node(pose)
+        if len(self.road_nodes_) != prev_count:
+            # new node → try KNN edges from the new node
+            self._try_connect_edges_from(self._last_node_idx_)
+
+        self._publish_roadmap()
+        self._seed_unreached_free_areas()
+
 
 
 

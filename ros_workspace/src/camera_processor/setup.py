@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'image_callback = camera_processor.camera_processor:main',
+            'camera_processor = camera_processor.camera_processor:main',
         ],
     },
 )
