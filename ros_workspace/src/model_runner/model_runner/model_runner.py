@@ -2,13 +2,12 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
-from geometry_msgs.msg import Pose2D
+from geometry_msgs.msg import Pose2D, PoseStamped
 import numpy as np
 from ultralytics import YOLO
 import cv2
 
 class Artefact:
-    """Class for keeping track of detected artefacts"""
     def __init__(self, object_type: str, offset: int):
         self.object_type = object_type      # Class name from YOLO detection
         self.offset = offset                # Pixel offset from center
@@ -18,17 +17,14 @@ class Artefact:
         self.last_seen = 0                  # Frames since last detection
     
     def update_location(self, pose: Pose2D):
-        """Update the detected location with current robot pose"""
         self.detected_location = pose
         self.localised = True
     
     def update_offset(self, offset: int):
-        """Update the pixel offset from center"""
         self.offset = offset
         self.last_seen = 0  # Reset counter since we've seen it
     
     def increment_last_seen(self):
-        """Increment the counter for frames since last detection"""
         self.last_seen += 1
 
 class ModelRunnerNode(Node):
@@ -50,14 +46,11 @@ class ModelRunnerNode(Node):
         self.center_x = None
         self.center_y = None
         
-        # Robot state
-        self.current_pose = None        # Current robot pose
-        self.frames_without_target = 0  # Count frames where target is lost
-        self.max_frames_lost = 10       # Number of frames before considering target lost
+        # Initiliise Robot state
+        self.current_pose = Pose2D        # Current robot pose
         
-        # Artefact tracking
-        self.current_artefact = None  # Currently tracked artefact
-        self.detected_artefacts = {}  # Dictionary to store all detected artefacts {object_type: Artefact}
+        # TODO: Initiliise Artefact tracking
+        self.artefact_list = None
         
         # Subscribe to RGB camera
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
@@ -66,7 +59,7 @@ class ModelRunnerNode(Node):
         self.camera_info_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.save_intrinsics, 10)
 
         # Subscribe to robot pose
-        self.pose_sub = self.create_subscription(Pose2D, 'robot_pose', self.pose_callback, 10)
+        self.pose_sub = self.create_subscription(Pose2D, '/robot_pose', self.pose_callback, 10)
 
         # Publisher of annotated images
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
@@ -75,16 +68,16 @@ class ModelRunnerNode(Node):
         # Guard condition so function only runs once
         if self.has_camera_info:
             return 
-        self.camera_matrix = np.array(msg.k).reshape(3, 3)
-        self.has_camera_info = True
+        else:
+            # Debug
+            self.get_logger().info('Received camera intrinsics')
+            self.camera_matrix = np.array(msg.k).reshape(3, 3)
+            self.has_camera_info = True
         
-    def pose_callback(self, pose_msg: Pose2D):
-        """Update current robot pose and update artefact location if tracking"""
+    def pose_callback(self, pose_msg):
+        # Debug
+        self.get_logger().info('Received robot pose')
         self.current_pose = pose_msg
-        
-        # If we're tracking an artefact and it's not yet localised, record its location
-        if self.current_artefact and not self.current_artefact.localised:
-            self.current_artefact.update_location(pose_msg)
     
     def image_callback(self, image_msg):
          
@@ -94,6 +87,14 @@ class ModelRunnerNode(Node):
         # Debug
         self.get_logger().info('Image received from camera')
     
+        # DEBUG: Show robot pose
+        if self.current_pose:
+            self.get_logger().info(f'Pose x: {self.current_pose.x}')
+            self.get_logger().info(f'Pose y: {self.current_pose.y}')
+            self.get_logger().info(f'Pose theta: {self.current_pose.theta}')
+        else:
+            self.get_logger().info('No pose data available yet')
+
         # Execute computer vision model
         results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
 
@@ -103,16 +104,6 @@ class ModelRunnerNode(Node):
             # Debug
             self.get_logger().info('New detection made on received image')    
             
-            # Boxes object for bounding box outputs
-            boxes = result.boxes  
-
-            # Check if we've lost our target
-            self.frames_without_target += 1
-            if self.frames_without_target >= self.max_frames_lost and self.target_lock:
-                self.target_lock = False
-                self.target_object = None
-                self.get_logger().warn('Target lost - searching for new target')
-
             # Calculate center coordinates only if not already set
             original_height, original_width = result.orig_shape 
             if self.center_x is None or self.center_y is None:
@@ -124,16 +115,14 @@ class ModelRunnerNode(Node):
             cv2.circle(image, ( self.center_x , self.center_y), 5, (255, 0, 0), -1) 
             cv2.putText(image,"center", ( self.center_x , self.center_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
 
+            # TODO: Localisation: Check artefact list
+
+            # Go through detected boxes from YOLO model
+            boxes = result.boxes                            # Yolo's detections - Property of results object
             number_of_boxes = len(boxes.xywh)
-            
             if number_of_boxes > 0:
-                # Reset frame counter since we have detections
-                self.frames_without_target = 0
-                
-                # Find the best detection to track
-                best_detection = None
-                best_confidence = 0.0
-                
+
+                # Process given box and allocate to an artefact
                 for i in range(number_of_boxes):
                     class_id = int(boxes.cls[i])
                     class_name = self.model.names[class_id]
@@ -141,66 +130,16 @@ class ModelRunnerNode(Node):
                     object_image_x = int(boxes.xywh[i][0])
                     object_image_y = int(boxes.xywh[i][1])
                     
-                    # If we're not tracking anything yet, or this is our target
-                    if (not self.target_lock) or (self.target_object == class_name and confidence > best_confidence):
-                        best_detection = {
-                            'class_name': class_name,
-                            'confidence': confidence,
-                            'x': object_image_x,
-                            'y': object_image_y,
-                            'index': i
-                        }
-                        best_confidence = confidence
+                    # Create dot on detected object
+                    cv2.circle(image, (object_image_x, object_image_y), 5, (0, 255, 0), -1)
                     
-                    # Always draw detection circles (dimmer for non-targets)
-                    color = (0, 255, 0) if not self.target_lock else (0, 100, 0)  # Bright green for no target, dim green otherwise
-                    cv2.circle(image, (object_image_x, object_image_y), 5, color, -1)
+                    # Draw arrow from center of camera to detected object
+                    cv2.arrowedLine(image, (self.center_x, self.center_y), (object_image_x, object_image_y), (0, 255, 0), 2, cv2.LINE_AA, tipLength=0.2) 
                     
-                    # Add labels for all detections
+                    # Add labels 
                     label = f"{class_name} {confidence:.2%}"
-                    cv2.putText(image, label, (object_image_x, object_image_y - 10), 
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+                    cv2.putText(image, label, (object_image_x, object_image_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
                 
-                # Process the best detection
-                if best_detection:
-                    if not self.target_lock:
-                        self.target_object = best_detection['class_name']
-                        self.target_confidence = best_detection['confidence']
-                        self.target_lock = True
-                        self.get_logger().info(f'Locked onto target: {self.target_object}')
-                    
-                    # Draw arrow and highlight for target object
-                    cv2.circle(image, (best_detection['x'], best_detection['y']), 8, (0, 255, 255), 2)  # Yellow highlight
-                    cv2.arrowedLine(image, (self.center_x, self.center_y), 
-                                  (best_detection['x'], best_detection['y']), 
-                                  (0, 0, 255), 2, tipLength=0.3)
-                    
-                    # Assess how centered we are
-                    x_center = self.center_x - best_detection['x']
-                    self.get_logger().info(f'Target offset: {x_center} pixels') # If x_center > 50 or < -50 then we are not centered
-
-        # Add status information to top left
-        status_y = 30       # Starting y position for text
-        line_height = 30    # Pixels between lines
-        
-        # Tracking status
-        tracking_text = f"Tracking: {self.target_object if self.target_lock else 'None'}"
-        cv2.putText(image, tracking_text, (10, status_y), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-        
-        # Offset information (only show if tracking)
-        if self.target_lock and 'x_center' in locals():
-            cv2.putText(image, f"Offset: {x_center} px", (10, status_y + line_height), 
-                      cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-        else:
-            cv2.putText(image, f"No offset", (10, status_y + line_height), 
-                      cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-        
-        # Frames without target
-        cv2.putText(image, f"Frames without target: {self.frames_without_target}", 
-                   (10, status_y + 2 * line_height), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-
         # Re-convert processed cv image to ros format
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
 

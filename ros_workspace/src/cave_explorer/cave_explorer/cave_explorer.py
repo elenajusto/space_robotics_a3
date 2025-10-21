@@ -97,10 +97,6 @@ class CaveExplorer(Node):
         # Array of type geometry_msgs.Point
         self.artifact_locations_ = []
         
-        # Robot pose tracking
-        self.current_pose = Pose2D()
-        self.pose_pub_ = self.create_publisher(Pose2D, 'robot_pose', 10)
-
         # Prepare transformation to get robot pose
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -115,6 +111,9 @@ class CaveExplorer(Node):
 
         # Publisher for the goal pose visualisation
         self.goal_pose_vis_ = self.create_publisher(PoseStamped, 'goal_pose', 1)
+
+        # Publisher for robot's pose
+        self.robot_pose_ = self.create_publisher(Pose2D, 'robot_pose', 1)
 
         # Subscribe to the map topic to get current bounds
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
@@ -157,6 +156,8 @@ class CaveExplorer(Node):
 
         self.get_logger().warn(f'Pose: {pose}')
 
+        self.robot_pose_.publish(pose)
+        
         return pose
 
     def map_callback(self, map_msg: OccupancyGrid):
@@ -421,12 +422,9 @@ class CaveExplorer(Node):
         Set the next goal pose and send to the action server
         See https://docs.nav2.org/concepts/index.html
         """
-        # Get and publish current robot pose
-        current_pose = self.get_pose_2d()
-        if current_pose:
-            self.current_pose = current_pose
-            self.pose_pub_.publish(current_pose)
-        
+        # Run pose
+        self.get_pose_2d()
+
         # Don't do anything until SLAM is launched
         if not self.tf_buffer.can_transform(
                 'map',
