@@ -63,9 +63,7 @@ class CaveExplorer(Node):
     def __init__(self):
         super().__init__('cave_explorer_node')
 
-        self.declare_parameter('mode', 'navigate') #THIS SHOULD HAVE ADVANCED 4, PLANNER 1, 2, 3 (OR WHATEVER WE CALL THEM)
-        mode_str = self.get_parameter('mode').value
-        
+        self.declare_parameter('mode', 'explorer') #THIS SHOULD HAVE ADVANCED 4, PLANNER 1, 2, 3 (OR WHATEVER WE CALL THEM)        
 
         #Planner 3 parameters
         self.inspected_artifacts_ = []
@@ -75,10 +73,10 @@ class CaveExplorer(Node):
         self.inspect_time = 0 #how long we have spent inspecting the current artifact. if this gets too high we give up and move on
 
         # ===== Advanced 4: Online Roadmap Construction =====
-        self.declare_parameter('roadmap_node_spacing', 1.5)   # meters between added nodes
+        self.declare_parameter('roadmap_node_spacing', 0.4)   # meters between added nodes
         self.declare_parameter('roadmap_knn_k', 3)            # connect to K nearest neighbors
-        self.declare_parameter('roadmap_edge_radius', 6.0)    # max distance to try edges
-        self.declare_parameter('roadmap_occ_thresh', 50)      # occupancy threshold [0..100]
+        self.declare_parameter('roadmap_edge_radius', 20.0)    # max distance to try edges
+        self.declare_parameter('roadmap_occ_thresh', 20)      # occupancy threshold [0..100]
 
         self.roadmap_node_spacing_ = float(self.get_parameter('roadmap_node_spacing').value)
         self.roadmap_knn_k_        = int(self.get_parameter('roadmap_knn_k').value)
@@ -116,6 +114,10 @@ class CaveExplorer(Node):
         self.road_edges_marker_.color.r = 0.2
         self.road_edges_marker_.color.g = 0.6
         self.road_edges_marker_.color.b = 1.0
+
+        # Publisher for roadmap visualization
+        self.roadmap_pub_ = self.create_publisher(MarkerArray, 'marker_array_roadmap', 10)
+
 
 
         # Variables/Flags for mapping
@@ -179,7 +181,7 @@ class CaveExplorer(Node):
         # Image processing
         self.cv_bridge_ = CvBridge()
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)            # Publish artefact detections to the visualiser thingy
-        model_path = "src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory        
+        model_path = "/home/student/ros2_ws/src/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory
         self.model = YOLO(model_path)                                                               # Define YOLO model being used
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)  # Listen to camera sensor
 
@@ -222,14 +224,15 @@ class CaveExplorer(Node):
         """New map received, so update x and y limits"""
 
         # Extract data from message
-        self.map_origin = map_msg.info.origin
-        self.map_resolution = map_msg.info.resolution
-        self.map_height = map_msg.info.height
-        self.map_width = map_msg.info.width
+        self.map_origin_ = map_msg.info.origin
+        self.map_resolution_ = map_msg.info.resolution
+        self.map_height_ = map_msg.info.height
+        self.map_width_ = map_msg.info.width
+        self.map_data_ = map_msg.data
 
         # Set current limits
-        self.xlim_ = [self.map_origin.position.x, self.map_origin.position.x + self.map_width * self.map_resolution]
-        self.ylim_ = [self.map_origin.position.y, self.map_origin.position.y + self.map_height * self.map_resolution]
+        self.xlim_ = [self.map_origin_.position.x, self.map_origin_.position.x + self.map_width_ * self.map_resolution_]
+        self.ylim_ = [self.map_origin_.position.y, self.map_origin_.position.y + self.map_height_ * self.map_resolution_]
 
         # self.get_logger().warn('Map received:')
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
@@ -643,9 +646,12 @@ class CaveExplorer(Node):
                 self._roadmap_dirty_ = True
 
     def _publish_roadmap(self):
+        self.get_logger().warn('Publishing roadmap...')
         if not self._roadmap_dirty_:
             return
         # nodes
+        self.get_logger().info(f"Publishing roadmap: {len(self.road_nodes_)} nodes, {len(self.road_edges_)} edges")
+
         self.road_nodes_marker_.points = []
         for (x,y) in self.road_nodes_:
             p = Point(); p.x = x; p.y = y; p.z = 0.0
@@ -664,8 +670,10 @@ class CaveExplorer(Node):
         self.road_nodes_marker_.header.stamp = now
         self.road_edges_marker_.header.stamp = now
         arr.markers = [self.road_nodes_marker_, self.road_edges_marker_]
-        self.marker_pub_.publish(arr)
+        self.roadmap_pub_.publish(arr)
         self._roadmap_dirty_ = False
+
+        self.get_logger().info("Roadmap Markers Published.")
 
     def roadmap_update(self): #this should be called a few time a second when the planner type is correct
         # need map + tf
@@ -691,50 +699,33 @@ class CaveExplorer(Node):
 
 
     def main_loop(self):
-        """
-        Set the next goal pose and send to the action server
-        See https://docs.nav2.org/concepts/index.html
-        """
-        
-        # Don't do anything until SLAM is launched
-        if not self.tf_buffer.can_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()):
+        # Always allow roadmap mode to run without Nav2 goals
+        mode = self.get_parameter('mode').get_parameter_value().string_value.lower()
+
+        # If SLAM/TF isn't up, do nothing
+        if not self.tf_buffer.can_transform('map', 'base_link', rclpy.time.Time()):
             self.get_logger().warn('Waiting for transform... Have you launched a SLAM node?')
             return
 
-        #######################################################
-        # Update flags related to the progress of the current planner
 
-        # Check if previous goal still running
-        if not self.ready_for_next_goal_:
-            # self.get_logger().info(f'Previous goal still running')
+        if mode == 'advanced4':
+            self.roadmap_update()
             return
 
-        self.ready_for_next_goal_ = False
 
-        match self.mode_str_:
-            case 'Planning1':
-                self.planner_type_ = PlannerType.Planning1
-            case 'Planning2':
-                self.planner_type_ = PlannerType.Planning2
-            case 'Planning3':
-                self.planner_type_ = PlannerType.Planning3
-            case 'Advance4':
-                self.planner_type_ = PlannerType.Advanced4
-                self.roadmap_update()
 
-        """if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
+        if not self.ready_for_next_goal_:
+            return
+
+        # Progress flags for your template planners
+        if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
             self.get_logger().info('Successfully reached first artifact!')
             self.reached_first_artifact_ = True
         if self.planner_type_ == PlannerType.RETURN_HOME:
             self.get_logger().info('Successfully returned home!')
             self.returned_home_ = True
 
-        #######################################################
-        # Select the next planner to execute
-        # Update this logic as you see fit!
+        # Pick planner (your original logic)
         if not self.reached_first_artifact_:
             self.planner_type_ = PlannerType.GO_TO_FIRST_ARTIFACT
         elif not self.returned_home_:
@@ -742,36 +733,28 @@ class CaveExplorer(Node):
         else:
             self.planner_type_ = PlannerType.RANDOM_GOAL
 
-        #######################################################
-        # Execute the planner by calling the relevant method
-        # Add your own planners here!
         self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
+
         if self.planner_type_ == PlannerType.MOVE_FORWARDS:
+            self.ready_for_next_goal_ = False
             self.planner_move_forwards(10)
         elif self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
+            self.ready_for_next_goal_ = False
             self.planner_go_to_first_artifact()
         elif self.planner_type_ == PlannerType.RETURN_HOME:
+            self.ready_for_next_goal_ = False
             self.planner_return_home()
         elif self.planner_type_ == PlannerType.RANDOM_WALK:
+            self.ready_for_next_goal_ = False
             self.planner_random_walk()
         elif self.planner_type_ == PlannerType.RANDOM_GOAL:
+            self.ready_for_next_goal_ = False
             self.planner_random_goal()
         else:
             self.get_logger().error('No valid planner selected')
-            self.destroy_node() 
-"""
+            self.destroy_node()
 
-        #######################################################
-        ### PLANNING 3 ###
-        """
-        self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
-        if self.planner_type_ == PlannerType.Planning1:
-            self.planner1()
-        elif self.planner_type_ == PlannerType.Planning2:
-            self.planner2()
-        elif self.planner_type_ == PlannerType.Planning3:
-            self.planner3()
-        """
+
 
 
 
