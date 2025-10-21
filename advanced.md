@@ -27,8 +27,12 @@ Open a new terminal and run:
  * rviz2
  Then add two image topic and add the image_after adn image_before topics. You will now be able to view the changes and original image.
 
+ To see the images detecting the artifacts you must run this line:
+  * ros2 run model_runner model_runner
+
  To then move around use this command in another terminal:
  * ros2 run teleop_twist_keyboard teleop_twist_keyboard
+
 
 
 

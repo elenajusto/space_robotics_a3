@@ -24,7 +24,8 @@ class ModelRunnerNode(Node):
         self.cv_bridge_ = CvBridge()
 
         # Initialise the YOLO model
-        model_path = "src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
+        #model_path = "/home/ros2_ws/src/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
+        model_path = "/home/student/ros2_ws/src/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt"
         self.model = YOLO(model_path)
 
         # Initialise camera parameters
