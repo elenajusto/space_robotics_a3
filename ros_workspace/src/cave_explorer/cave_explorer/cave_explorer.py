@@ -75,7 +75,7 @@ class CaveExplorer(Node):
         # ===== Advanced 4: Online Roadmap Construction =====
         self.declare_parameter('roadmap_node_spacing', 0.4)   # meters between added nodes
         self.declare_parameter('roadmap_knn_k', 3)            # connect to K nearest neighbors
-        self.declare_parameter('roadmap_edge_radius', 20.0)    # max distance to try edges
+        self.declare_parameter('roadmap_edge_radius', 5)    # max distance to try edges
         self.declare_parameter('roadmap_occ_thresh', 50)      # occupancy threshold [0..100]
 
         self.roadmap_node_spacing_ = float(self.get_parameter('roadmap_node_spacing').value)
