@@ -27,10 +27,6 @@ class ModelRunnerNode(Node):
         model_path = "src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
         self.model = YOLO(model_path)
 
-        # Initialise camera parameters
-        self.camera_matrix = None
-        self.has_camera_info = False
-
         # Initiliise image paramters
         self.center_x = 360 # Hardcoded
         self.center_y = 240 # Hardcoded
