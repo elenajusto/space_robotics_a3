@@ -6,6 +6,9 @@ source /opt/ros/humble/setup.bash
 # Change to ros_workspace directory
 cd ros_workspace
 
+# Build
+colcon build
+
 # Source the workspace setup
 source install/setup.bash
 
