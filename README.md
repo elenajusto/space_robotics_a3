@@ -60,7 +60,7 @@ ros2 launch cave_explorer cave_explorer_autonomy.launch.py
 ### Camera Processor
 This executes the new camera listener node that was created to take in data from the camera sensor.
 ```sh
-ros2 run camera_processor listener
+ros2 run camera_processor camera_processor
 ```
 
 ### Model Runner
