@@ -61,7 +61,7 @@ class Artefact:
         self.localised = localised
         self.estimated_location = estimated_location
         self.detected_location = detected_location
-
+    
 class CaveExplorer(Node):
     def __init__(self):
         super().__init__('cave_explorer_node')
@@ -180,72 +180,106 @@ class CaveExplorer(Node):
     def image_callback(self, image_msg):
 
         # Only process new detections if artefact has not beet detected
-        if self.artifact_found_ == False:
+        #if self.artifact_found_ == False:
 
-            # Debug
-            self.get_logger().info('Image received from camera')
+        # Debug
+        self.get_logger().info('Image received from camera')
+    
+        # Turn received image into cv format
+        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
         
-            # Turn received image into cv format
-            image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
-            
-            # Draw red circle at image center 
-            cv2.circle(image, ( self.center_x , self.center_y), 5, (255, 0, 0), -1) 
-            cv2.putText(image,"center", ( self.center_x , self.center_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
+        # Draw red circle at image center 
+        cv2.circle(image, ( self.center_x , self.center_y), 5, (255, 0, 0), -1) 
+        cv2.putText(image,"center", ( self.center_x , self.center_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
 
-            # Execute computer vision model
-            results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
+        # Execute computer vision model
+        results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
 
-            # Process detection
-            for result in results:
-                # Process computer vision model results
-                boxes = result.boxes                            
-                number_of_boxes = len(boxes.xywh)
-                if number_of_boxes > 0:
-                    # Process given box and allocate to an artefact
-                    for i in range(number_of_boxes):
-                        class_id = int(boxes.cls[i])
-                        class_name = self.model.names[class_id]
-                        confidence = float(boxes.conf[i])
-                        object_image_x = int(boxes.xywh[i][0])
-                        object_image_y = int(boxes.xywh[i][1])
-                        
-                        # Create dot on detected object
-                        cv2.circle(image, (object_image_x, object_image_y), 5, (0, 255, 0), -1)
-                        
-                        # Draw arrow from center of camera to detected object
-                        cv2.arrowedLine(image, (self.center_x, self.center_y), (object_image_x, object_image_y), (0, 255, 0), 2, cv2.LINE_AA, tipLength=0.2) 
-                        
-                        # Get offset between image center and artefact (horizontal distance in pixels)
-                        offset = object_image_x - self.center_x
+        # Process detection
+        for result in results:
+            # Process computer vision model results
+            boxes = result.boxes                            
+            number_of_boxes = len(boxes.xywh)
+            if number_of_boxes > 0:
+                # Process given box and allocate to an artefact
+                for i in range(number_of_boxes):
+                    class_id = int(boxes.cls[i])
+                    class_name = self.model.names[class_id]
+                    confidence = float(boxes.conf[i])
+                    object_image_x = int(boxes.xywh[i][0])
+                    object_image_y = int(boxes.xywh[i][1])
+                    
+                    # Create dot on detected object
+                    cv2.circle(image, (object_image_x, object_image_y), 5, (0, 255, 0), -1)
+                    
+                    # Draw arrow from center of camera to detected object
+                    cv2.arrowedLine(image, (self.center_x, self.center_y), (object_image_x, object_image_y), (0, 255, 0), 2, cv2.LINE_AA, tipLength=0.2) 
+                    
+                    # Get offset between image center and artefact (horizontal distance in pixels)
+                    offset = object_image_x - self.center_x
 
-                        # Add labels 
-                        label = f"{class_name} {confidence:.2%}"
-                        cv2.putText(image, label, (object_image_x, object_image_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    # Add labels 
+                    label = f"{class_name} {confidence:.2%}"
+                    cv2.putText(image, label, (object_image_x, object_image_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    
+                    # Robot current location
+                    currentLocation = self.get_pose_2d()
 
-                        # Create artefact object
-                        newArtefact = Artefact(class_name, offset, False, False, Pose2D(), Pose2D())
-                        
-                        # Debug offset information
-                        self.get_logger().info(f'Artefact offset from center: {offset} pixels')
+                    # Create artefact object
+                    newArtefact = Artefact
+                    newArtefact.objectType = class_name
+                    newArtefact.offset = offset
+                    newArtefact.tracking = True
+                    newArtefact.localised = False
+                    newArtefact.estimated_location = Pose2D()
+                    newArtefact.detected_location = currentLocation
 
-                        # Update detected artefact's parameters
-                        newArtefact.detected_location = self.current_pose
-                        newArtefact.tracking = True
-                        newArtefact.localised = False
+                    # TODO Debug - Information on the artefact
+                    self.get_logger().info(f'Artefact Type: {newArtefact.objectType}')
+                    self.get_logger().info(f'Artefact Offset: {newArtefact.offset}')
+                    self.get_logger().info(f'Artefact detection x: {newArtefact.detected_location.x}')
+                    self.get_logger().info(f'Artefact detection y: {newArtefact.detected_location.y}')
+                    self.get_logger().info(f'Artefact detection theta: {newArtefact.detected_location.theta}')
 
-                        # TODO Debug - Information on the artefact
-                        self.get_logger().info(f'Artefact Type: {newArtefact.objectType}')
-                        self.get_logger().info(f'Artefact Offset: {newArtefact.offset}')
-                        self.get_logger().info(f'Artefact detection x: {newArtefact.detected_location.x}')
-                        self.get_logger().info(f'Artefact detection y: {newArtefact.detected_location.y}')
-                        self.get_logger().info(f'Artefact detection theta: {newArtefact.detected_location.theta}')
+                    # TODO - Check if this artefact has already been recorde
+                    # Go through artefact list
+                    self.get_logger().info(f"Checking: if this has been observed already")
+                    
+                    if len(self.artifact_locations_) > 0:
+                        for index, artefact in enumerate(self.artifact_locations_):
+                            self.get_logger().info(f"Checking: {index}")
 
+                            self.get_logger().info(f"{index}'s x-axis is at: {artefact.detected_location.x}")
+                            self.get_logger().info(f"{index}'s y-axis is at: {artefact.detected_location.y}")
+
+                            # Check radius around x,y
+
+                            self.get_logger().info(f"Comparing {newArtefact.detected_location.x} < {currentLocation.x + 5} ")
+                            if newArtefact.detected_location.x < (currentLocation.x + 5):
+
+                                self.get_logger().info(f"Comparing {newArtefact.detected_location.x} > {currentLocation.x - 5} ")
+                                if newArtefact.detected_location.x > (currentLocation.x - 5):
+
+                                    self.get_logger().info(f"Comparing {newArtefact.detected_location.y} < {currentLocation.y + 5} ")
+                                    if newArtefact.detected_location.y < (currentLocation.y + 5):
+
+                                        self.get_logger().info(f"Comparing {newArtefact.detected_location.y} > {currentLocation.y - 5} ")
+                                        if newArtefact.detected_location.y > (currentLocation.y - 5):
+                                            # Debug
+                                            self.get_logger().info(f"We probably already havea this artefact - skip")
+                            else:
+                                # Debug
+                                self.get_logger().info(f"We likely found a new artefact!")
+                                
+                                # Append the new artefact object into the artefact list
+                                self.artifact_locations_.append(newArtefact)
+
+                                # Change tracking status
+                                self.artifact_found_ = True
+                    else:
                         # Append the new artefact object into the artefact list
                         self.artifact_locations_.append(newArtefact)
 
-                        # Change tracking status
-                        self.artifact_found_ = True
-                                
             # Re-convert processed cv image to ros format
             image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
 
@@ -261,62 +295,42 @@ class CaveExplorer(Node):
         # Assuming the robot has stopped moving
         current_location = self.get_pose_2d()
         
-        # Arbitrary rotation value
-        rotation_factor = 0.001
+        # FOV / Image width
+        pixels_to_radians = 2 / 720.0  
+        rotation_angle = artefact.offset * pixels_to_radians
+
+        # Vector to go to
+        direction = Pose2D()
+        direction.x = current_location.x
+        direction.y = current_location.y
 
         # Get the offset of the artefact from the center
         self.get_logger().info(f"Offset: {artefact.offset}")
 
         # Check how to adjust centering
         if artefact.offset < -50:
-
             # Debug
             self.get_logger().info(f"Vectoring to the left")
-
-            # TODO - Create a direction vector
-            rotation_angle = abs(artefact.offset) * rotation_factor
-            rotation_angle = wrap_angle(current_location.theta + rotation_angle)
-
-            direction = Pose2D()
-            direction.x = current_location.x
-            direction.y = current_location.y
-            direction.theta = rotation_angle
-
-            self.get_logger().info(f"Rotation vector {direction}")    
-
-            # TODO - Call planner to rotation
+            # Add the rotation to current heading
+            direction.theta = wrap_angle(current_location.theta + abs(rotation_angle))
 
         elif artefact.offset > 50:
-
             # Debug
             self.get_logger().info(f"Vectoring to the right")
-            
-            # TODO - Create a direction vector
-            rotation_angle = abs(artefact.offset) * rotation_factor
-            rotation_angle = wrap_angle(current_location.theta - rotation_angle)
-
-            direction = Pose2D()
-            direction.x = current_location.x
-            direction.y = current_location.y
-            direction.theta = rotation_angle
-
-            self.get_logger().info(f"Rotation vector {direction}")    
-
-
-            # TODO - Call planner to rotation
-
+            # Subtract the rotation from current heading
+            direction.theta = wrap_angle(current_location.theta - abs(rotation_angle))
         else:
             self.get_logger().info(f"Artefact centered within acceptable range")
             # TODO - Call planner to move forward
 
             # TODO - Estimate location of artefact a few meters forward
 
+            # TODO - Set this artefact's index in the artefact list to localised, make sure to ignore detections within a certain radius of these x,y coord
 
-        # TODO - Call to Camera Vision Model
-        
-        # TODO - Get updatated offset
+        # TODO - Call planner to rotation
+        self.get_logger().info(f"Rotation vector {direction}")  
+        self.planner_go_to_pose2d(direction)
     
-
     def localise_artifact(self):
         """
         INCOMPLETE:
