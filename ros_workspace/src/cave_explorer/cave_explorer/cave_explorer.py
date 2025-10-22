@@ -25,10 +25,6 @@ from visualization_msgs.msg import MarkerArray
 
 from ultralytics import YOLO
 
-
-
-
-
 def wrap_angle(angle):
     """Function to wrap an angle between 0 and 2*Pi"""
     while angle < 0.0:
@@ -69,7 +65,7 @@ class CaveExplorer(Node):
     def __init__(self):
         super().__init__('cave_explorer_node')
 
-        self.declare_parameter('mode', 'planning') #THIS SHOULD HAVE ADVANCED 4, PLANNER 1, 2, 3 (OR WHATEVER WE CALL THEM)
+        self.declare_parameter('mode', 'advanced4') #THIS SHOULD HAVE ADVANCED 4, PLANNER 1, 2, 3 (OR WHATEVER WE CALL THEM)
         # ===== Advanced 4: Online Roadmap Construction =====
         self.declare_parameter('roadmap_node_spacing', 0.4)   # meters between added nodes
         self.declare_parameter('roadmap_knn_k', 3)            # connect to K nearest neighbors
@@ -246,25 +242,7 @@ class CaveExplorer(Node):
     def map_callback(self, map_msg: OccupancyGrid):
         """New map received, so update x and y limits"""
 
-        # # Extract data from message
-        # map_origin = [map_msg.info.origin.position.x, 
-        #               map_msg.info.origin.position.y]
-        # map_resolution = map_msg.info.resolution
-        # map_height = map_msg.info.height
-        # map_width = map_msg.info.width
-
-        # # Set current limits
-        # self.xlim_ = [map_origin[0], map_origin[0]+map_width*map_resolution]
-        # self.ylim_ = [map_origin[1], map_origin[1]+map_height*map_resolution]
-
-        #     # Extract map info
-        # self.map_origin_ = map_msg.info.origin
-        # self.map_resolution_ = map_msg.info.resolution
-        # self.map_height_ = map_msg.info.height
-        # self.map_width_ = map_msg.info.width
-        # self.map_data_ = map_msg.data  # store the occupancy grid values
-
-                # Extract data from message
+        # Extract data from message
         self.map_origin_ = map_msg.info.origin
         self.map_resolution_ = map_msg.info.resolution
         self.map_height_ = map_msg.info.height
@@ -274,55 +252,6 @@ class CaveExplorer(Node):
         # Set current limits
         self.xlim_ = [self.map_origin_.position.x, self.map_origin_.position.x + self.map_width_ * self.map_resolution_]
         self.ylim_ = [self.map_origin_.position.y, self.map_origin_.position.y + self.map_height_ * self.map_resolution_]
-
-
-        # self.get_logger().warn('Map received:')
-        # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
-        # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
-    
-    # def image_callback(self, image_msg):
-    #     """
-    #     Recieve an RGB image.
-    #     Use this method to detect artifacts of interest.
-        
-    #     A simple method has been provided to begin with for detecting stop signs (which is not what we're actually looking for) 
-    #     adapted from: https://www.geeksforgeeks.org/detect-an-object-with-opencv-python/
-    #     """
-    
-    #     # Copy the image message to a cv image
-    #     # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
-    #     image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
-
-    #     # Create a grayscale version (some simple models use this)
-    #     image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    #     # Retrieve the pre-trained model
-    #     stop_sign_model = self.computer_vision_model_
-
-    #     # Detect artifacts in the image
-    #     # The minSize is used to avoid very small detections that are probably noise
-    #     detections = stop_sign_model.detectMultiScale(image, minSize=(20,20))
-
-    #     # You can set "artifact_found_" to true to signal to "main_loop" that you have found a artifact
-    #     # You may want to communicate more information
-    #     # Since the "image_callback" and "main_loop" methods can run at the same time you should protect any shared variables
-    #     # with a mutex
-    #     # "artifact_found_" doesn't need a mutex because it's an atomic
-    #     num_detections = len(detections)
-        
-
-    #     if num_detections > 0:
-    #         self.artifact_found_ = True
-    #     else:
-    #         self.artifact_found_ = False
-
-    #     # Draw a bounding box rectangle on the image for each detection
-    #     for(x, y, width, height) in detections:
-    #         cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
-
-    #     # Publish the image with the detection bounding boxes
-    #     image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
-    #     self.image_detections_pub_.publish(image_detection_message)
 
 
     def image_callback(self, image_msg):
@@ -642,62 +571,6 @@ class CaveExplorer(Node):
         self.get_logger().info(f"Published artifact marker (id={marker.id}, color=({r:.1f},{g:.1f},{b:.1f}))")
 
 
-
-    # def publish_artifact_markers(self):
-    #     """ Publish the artifact location markers"""
-
-    #     marker_artifacts_ = Marker()
-    #     marker_artifacts_.header.frame_id = "map"
-    #     marker_artifacts_.ns = "artifacts"
-    #     marker_artifacts_.id = 0
-    #     marker_artifacts_.type = Marker.SPHERE_LIST
-    #     marker_artifacts_.action = Marker.ADD
-    #     marker_artifacts_.pose.position.x = 0.0
-    #     marker_artifacts_.pose.position.y = 0.0
-    #     marker_artifacts_.pose.position.z = 0.0
-    #     marker_artifacts_.pose.orientation.x = 0.0
-    #     marker_artifacts_.pose.orientation.y = 0.0
-    #     marker_artifacts_.pose.orientation.z = 0.0
-    #     marker_artifacts_.pose.orientation.w = 1.0
-    #     marker_artifacts_.scale.x = 1.5
-    #     marker_artifacts_.scale.y = 1.5
-    #     marker_artifacts_.scale.z = 1.5
-
-    #     if self.current_image_id == 1:
-    #         marker_artifacts_.color.a = 1.0
-    #         marker_artifacts_.color.r = 0.0
-    #         marker_artifacts_.color.g = 1.0
-    #         marker_artifacts_.color.b = 0.2
-
-    #     elif self.current_image_id == 2:
-    #         marker_artifacts_.color.a = 1.0
-    #         marker_artifacts_.color.r = 0.0
-    #         marker_artifacts_.color.g = 1.0
-    #         marker_artifacts_.color.b = 0.2
-            
-    #     elif self.current_image_id == 3:
-    #         marker_artifacts_.color.a = 1.0
-    #         marker_artifacts_.color.r = 1.0
-    #         marker_artifacts_.color.g = 0.5
-    #         marker_artifacts_.color.b = 0.0
-            
-    #     elif self.current_image_id == 4:
-    #         marker_artifacts_.color.a = 1.0
-    #         marker_artifacts_.color.r = 0.5
-    #         marker_artifacts_.color.g = 0.5
-    #         marker_artifacts_.color.b = 0.5
-
-    #     marker_artifacts_.points = [self.selected_artifact_]
-
-
-    #     # self.marker_artifacts_array.append(marker_artifacts_)
-    #     # self.marker_pub.publish(self.marker_artifacts_array)
-
-
-    #     # # Create and publish the MarkerArray
-    #     # marker_array = MarkerArray()
-    #     # marker_array.markers = [marker_artifacts_]
-    #     self.marker_pub_.publish(self.marker_artifacts_array)
 
     def planner_go_to_pose2d(self, pose2d, force: bool = False):
         """Go to a provided 2d pose"""
