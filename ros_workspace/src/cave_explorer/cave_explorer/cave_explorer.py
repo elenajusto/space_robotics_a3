@@ -543,7 +543,7 @@ class CaveExplorer(Node):
     def _grid_at(self, ix, iy): #check if the position is in the map
         if ix < 0 or iy < 0 or ix >= self.map_width_ or iy >= self.map_height_:
             return 100  # out of map = blocked
-        return self.map_data_[iy*self.map_width_ + ix]  ##why is this calculation done like this?
+        return self.map_data_[iy*self.map_width_ + ix]  
        # This is done to convert the 2D grid coordinates (ix, iy) into a 1D array index.
        # The map_data_ array is stored in row-major order, so we need to calculate the index
        # by multiplying the row index (iy) by the width of the map (map_width_) and adding the column index (ix).
