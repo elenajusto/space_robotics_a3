@@ -263,13 +263,20 @@ class CaveExplorer(Node):
         # Get the offset of the artefact from the center
         self.get_logger().info(f"Offset: {artefact.offset}")
 
-        # Check if need to move right
+        # Check how to adjust centering
+        if artefact.offset < -50:
+            self.get_logger().info(f"Vectoring to the left")
+        elif artefact.offset > 50:
+            self.get_logger().info(f"Vectoring to the right")
+        else:
+            self.get_logger().info(f"Artefact centered within acceptable range")
+            # TODO - Call planner to move forward
 
-        # Check if need to move left
+            # TODO - Estimate location of artefact a few meters forward
 
-        # Get updatated offset
-        
-        pass
+        # TODO - Call to Camera Vision Model
+        # TODO - Get updatated offset
+    
 
     def localise_artifact(self):
         """
