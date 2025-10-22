@@ -160,7 +160,7 @@ class CaveExplorer(Node):
 
         self.cv_bridge_ = CvBridge()
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)            # Publish artefact detections to the visualiser thingy
-        model_path = "/home/eleanorlow/spcrob/team_project/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory
+        model_path = "/home/student/ros2_ws/src/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt" # NOTE: Relative to your current working directory
         self.model = YOLO(model_path)                                                               # Define YOLO model being used
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)  # Listen to camera sensor
         self.current_image_id = 0
@@ -307,7 +307,17 @@ class CaveExplorer(Node):
                 # self.get_logger().info('height: "%s"' % height)
 
                 # Draw bounding box
-                cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+                # xywh from YOLO are center x,y plus width,height -> convert to top-left / bottom-right
+                h_img, w_img = image.shape[:2]
+                half_w = width // 2
+                half_h = height // 2
+                x1 = max(0, x - half_w)
+                y1 = max(0, y - half_h)
+                x2 = min(w_img - 1, x + half_w)
+                y2 = min(h_img - 1, y + half_h)
+                cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                # optional: draw center point
+                cv2.circle(image, (x, y), 3, (0, 0, 255), -1)
 
                 # Add text with class name and confidence score above the bounding box
                 class_id = int(boxes.cls[i])

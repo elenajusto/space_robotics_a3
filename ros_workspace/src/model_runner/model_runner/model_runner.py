@@ -19,7 +19,7 @@ class ModelRunnerNode(Node):
         self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
  
         # Initialise the YOLO model
-        model_path = "src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
+        model_path = "/home/student/ros2_ws/src/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
         self.model = YOLO(model_path)
 
         # Camera sensor subscription
