@@ -4,7 +4,7 @@ import math
 import random
 from enum import Enum
 
-import cv2  # OpenCV2
+import cv2  
 import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Pose, Pose2D, PoseStamped, Point
@@ -70,42 +70,14 @@ class CaveExplorer(Node):
         self.xlim_ = [0.0, 0.0]
         self.ylim_ = [0.0, 0.0]
 
-        # Variables/Flags for perception
-        self.artifact_found_ = False
-
         # Variables/Flags for planning
         self.planner_type_ = PlannerType.ERROR
         self.reached_first_artifact_ = False
         self.returned_home_ = False
 
-        # Marker for artifact locations
-        # See https://wiki.ros.org/rviz/DisplayTypes/Marker
-        self.marker_artifacts_ = Marker()
-        self.marker_artifacts_.header.frame_id = "map"
-        self.marker_artifacts_.ns = "artifacts"
-        self.marker_artifacts_.id = 0
-        self.marker_artifacts_.type = Marker.SPHERE_LIST
-        self.marker_artifacts_.action = Marker.ADD
-        self.marker_artifacts_.pose.position.x = 0.0
-        self.marker_artifacts_.pose.position.y = 0.0
-        self.marker_artifacts_.pose.position.z = 0.0
-        self.marker_artifacts_.pose.orientation.x = 0.0
-        self.marker_artifacts_.pose.orientation.y = 0.0
-        self.marker_artifacts_.pose.orientation.z = 0.0
-        self.marker_artifacts_.pose.orientation.w = 1.0
-        self.marker_artifacts_.scale.x = 1.5
-        self.marker_artifacts_.scale.y = 1.5
-        self.marker_artifacts_.scale.z = 1.5
-        self.marker_artifacts_.color.a = 1.0
-        self.marker_artifacts_.color.r = 0.0
-        self.marker_artifacts_.color.g = 1.0
-        self.marker_artifacts_.color.b = 0.2
+        # Template code - Publisher for marker artefacts
         self.marker_pub_ = self.create_publisher(MarkerArray, 'marker_array_artifacts', 10)
 
-        # Remember the artifact locations
-        # Array of type geometry_msgs.Point
-        self.artifact_locations_ = []
-        
         # Prepare transformation to get robot pose
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -144,8 +116,8 @@ class CaveExplorer(Node):
         self.current_pose = Pose2D        
         
         # Initiliise Artefact tracking
-        self.artefact_detected = False      # will serve as tracking flag
-        self.artefact_list = None
+        self.artifact_found_ = False
+        self.artifact_locations_ = []
         
         # Subscribe to RGB camera
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
@@ -215,62 +187,69 @@ class CaveExplorer(Node):
         cv2.circle(image, ( self.center_x , self.center_y), 5, (255, 0, 0), -1) 
         cv2.putText(image,"center", ( self.center_x , self.center_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
 
-        # Execute computer vision model
-        results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
+        # Only process new detections if artefact has not beet detected
+        if self.artifact_found_ == False:
+            # Execute computer vision model
+            results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
 
-        # Process detection
-        for result in results:
-            # Process computer vision model results
-            boxes = result.boxes                            
-            number_of_boxes = len(boxes.xywh)
-            if number_of_boxes > 0:
-                # Process given box and allocate to an artefact
-                for i in range(number_of_boxes):
-                    class_id = int(boxes.cls[i])
-                    class_name = self.model.names[class_id]
-                    confidence = float(boxes.conf[i])
-                    object_image_x = int(boxes.xywh[i][0])
-                    object_image_y = int(boxes.xywh[i][1])
-                    
-                    # Create dot on detected object
-                    cv2.circle(image, (object_image_x, object_image_y), 5, (0, 255, 0), -1)
-                    
-                    # Draw arrow from center of camera to detected object
-                    cv2.arrowedLine(image, (self.center_x, self.center_y), (object_image_x, object_image_y), (0, 255, 0), 2, cv2.LINE_AA, tipLength=0.2) 
-                    
-                    # Get offset between image center and artefact (horizontal distance in pixels)
-                    offset = object_image_x - self.center_x
+            # Process detection
+            for result in results:
+                # Process computer vision model results
+                boxes = result.boxes                            
+                number_of_boxes = len(boxes.xywh)
+                if number_of_boxes > 0:
+                    # Process given box and allocate to an artefact
+                    for i in range(number_of_boxes):
+                        class_id = int(boxes.cls[i])
+                        class_name = self.model.names[class_id]
+                        confidence = float(boxes.conf[i])
+                        object_image_x = int(boxes.xywh[i][0])
+                        object_image_y = int(boxes.xywh[i][1])
+                        
+                        # Create dot on detected object
+                        cv2.circle(image, (object_image_x, object_image_y), 5, (0, 255, 0), -1)
+                        
+                        # Draw arrow from center of camera to detected object
+                        cv2.arrowedLine(image, (self.center_x, self.center_y), (object_image_x, object_image_y), (0, 255, 0), 2, cv2.LINE_AA, tipLength=0.2) 
+                        
+                        # Get offset between image center and artefact (horizontal distance in pixels)
+                        offset = object_image_x - self.center_x
 
-                    # Add labels 
-                    label = f"{class_name} {confidence:.2%}"
-                    cv2.putText(image, label, (object_image_x, object_image_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                        # Add labels 
+                        label = f"{class_name} {confidence:.2%}"
+                        cv2.putText(image, label, (object_image_x, object_image_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-                    # Create artefact object
-                    newArtefact = Artefact(class_name, offset, False, False, Pose2D(), Pose2D())
-                    
-                    # Debug offset information
-                    self.get_logger().info(f'Artefact offset from center: {offset} pixels')
+                        # Create artefact object
+                        newArtefact = Artefact(class_name, offset, False, False, Pose2D(), Pose2D())
+                        
+                        # Debug offset information
+                        self.get_logger().info(f'Artefact offset from center: {offset} pixels')
 
-                    # Update detected artefact's parameters
-                    newArtefact.detected_location = self.current_pose
-                    newArtefact.tracking = True
-                    newArtefact.localised = False
+                        # Update detected artefact's parameters
+                        newArtefact.detected_location = self.current_pose
+                        newArtefact.tracking = True
+                        newArtefact.localised = False
 
+                        # TODO Debug - Information on the artefact
+                        self.get_logger().info(f'Artefact Type: {newArtefact.objectType}')
+                        self.get_logger().info(f'Artefact Offset: {newArtefact.offset}')
+                        self.get_logger().info(f'Artefact detection x: {newArtefact.detected_location.x}')
+                        self.get_logger().info(f'Artefact detection y: {newArtefact.detected_location.y}')
+                        self.get_logger().info(f'Artefact detection theta: {newArtefact.detected_location.theta}')
 
-                    # Debug Information on the artefact
-                    self.get_logger().info(f'Artefact Type: {newArtefact.objectType}')
-                    self.get_logger().info(f'Artefact Offset: {newArtefact.offset}')
-                    self.get_logger().info(f'Artefact detection x: {newArtefact.detected_location.x}')
-                    self.get_logger().info(f'Artefact detection y: {newArtefact.detected_location.y}')
-                    self.get_logger().info(f'Artefact detection theta: {newArtefact.detected_location.theta}')
+                        # Append the new artefact object into the artefact list
+                        self.artifact_locations_.append(newArtefact)
 
-                    self.planner_go_to_pose2d(self.get_pose_2d());
+                        # Change tracking status
+                        self.artifact_found_ = True
                                 
-        # Re-convert processed cv image to ros format
-        image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
+            # Re-convert processed cv image to ros format
+            image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
 
-        # Publish annotated image back to ros
-        self.image_detections_pub_.publish(image_detection_message)
+            # Publish annotated image back to ros
+            self.image_detections_pub_.publish(image_detection_message)
+        else:
+            return
 
 
     def localise_artifact(self):
@@ -450,6 +429,14 @@ class CaveExplorer(Node):
         """
         # Run pose
         self.get_pose_2d()
+    
+        # Debug - State of tracking
+        self.get_logger().info(f"State of tracking: {self.artefact_detected}")
+
+        # Debug - Artefact list
+        self.get_logger().info('Current artefacts:')
+        for item in self.artifact_locations_:
+            self.get_logger().info(f'Artefact: Type={item.objectType}, Offset={item.offset}, Tracking={item.tracking}, Localised={item.localised}')
 
         # Don't do anything until SLAM is launched
         if not self.tf_buffer.can_transform(
