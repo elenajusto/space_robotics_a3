@@ -258,7 +258,16 @@ class CaveExplorer(Node):
         # Debug
         self.get_logger().info('Execute inspection of artefact')
 
-        # Robot to stop moving
+        # Assuming the robot has stopped moving
+
+        # Get the offset of the artefact from the center
+        self.get_logger().info(f"Offset: {artefact.offset}")
+
+        # Check if need to move right
+
+        # Check if need to move left
+
+        # Get updatated offset
         
         pass
 
@@ -450,16 +459,24 @@ class CaveExplorer(Node):
 
         # Debug - Configure inspection testing
         if self.artifact_found_ == True:
+            # Examine artefacts
+            self.get_logger().info(f"Examining artefacts")
+
             # Go through artefact list
             for index, artefact in enumerate(self.artifact_locations_):
 
+                self.get_logger().info(f"Checking: {index}")
+
                 # Open item in artefact list
                 if artefact.localised == True:
+                    self.get_logger().info(f"This artefact has been localised.")
                     break
 
                 # If not localised then asssign this artefact index to the one to track
                 else:
+                    self.get_logger().info(f"This artefact requires inpsection.")
                     self.index_of_artefact_to_track = index
+                    self.planner_type_ = PlannerType.INSPECTION
                     break
 
         # Don't do anything until SLAM is launched
@@ -467,12 +484,13 @@ class CaveExplorer(Node):
             self.get_logger().warn('Waiting for transform... Have you launched a SLAM node?')
             return
         
+        # TODO - Comment out template code
         # Check if previous goal still running
-        if not self.ready_for_next_goal_:
-            self.get_logger().info(f'Previous goal still running')
-            return
+        # if not self.ready_for_next_goal_:
+        #     self.get_logger().info(f'Previous goal still running')
+        #     return
 
-        self.ready_for_next_goal_ = False
+        # self.ready_for_next_goal_ = False
 
         # TODO - Comment out template code
         # if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
@@ -493,9 +511,6 @@ class CaveExplorer(Node):
         # else:
         #     self.planner_type_ = PlannerType.RANDOM_GOAL
 
-        # TODO - Test inspection
-        if self.artifact_found_ == True:
-            self.planner_type_ = PlannerType.INSPECTION
 
         # Execute the planner by calling the relevant method
         self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
@@ -516,6 +531,8 @@ class CaveExplorer(Node):
             self.planner_random_goal()
 
         elif self.planner_type_ == PlannerType.INSPECTION:
+            # TODO Debug
+            self.get_logger().info(f"Executing inspection planner")
 
             # Pass the artefact in the list whose index we saved
             self.planner_inspection( self.artifact_locations_[self.index_of_artefact_to_track] )                          
