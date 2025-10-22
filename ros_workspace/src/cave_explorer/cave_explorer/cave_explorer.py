@@ -23,6 +23,11 @@ from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
 
+from ultralytics import YOLO
+
+
+
+
 
 def wrap_angle(angle):
     """Function to wrap an angle between 0 and 2*Pi"""
@@ -65,7 +70,6 @@ class CaveExplorer(Node):
         super().__init__('cave_explorer_node')
 
         self.declare_parameter('mode', 'advanced4') #THIS SHOULD HAVE ADVANCED 4, PLANNER 1, 2, 3 (OR WHATEVER WE CALL THEM)
-
         # ===== Advanced 4: Online Roadmap Construction =====
         self.declare_parameter('roadmap_node_spacing', 0.4)   # meters between added nodes
         self.declare_parameter('roadmap_knn_k', 3)            # connect to K nearest neighbors
@@ -198,11 +202,18 @@ class CaveExplorer(Node):
         # Subscribe to the map topic to get current bounds
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
-        # Prepare image processing and subscribe to image detection to get artifact information
-        self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
-        self.declare_parameter('computer_vision_model_filename', rclpy.Parameter.Type.STRING)
-        self.computer_vision_model_ = cv2.CascadeClassifier(self.get_parameter('computer_vision_model_filename').value)
-        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
+        self.cv_bridge_ = CvBridge()
+        self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)            # Publish artefact detections to the visualiser thingy
+        model_path = "/home/eleanorlow/spcrob/team_project/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory
+        self.model = YOLO(model_path)                                                               # Define YOLO model being used
+        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)  # Listen to camera sensor
+
+
+        # # Prepare image processing and subscribe to image detection to get artifact information
+        # self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
+        # self.declare_parameter('computer_vision_model_filename', rclpy.Parameter.Type.STRING)
+        # self.computer_vision_model_ = cv2.CascadeClassifier(self.get_parameter('computer_vision_model_filename').value)
+        # self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)
 
         # Timer for main loop
         self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
@@ -309,54 +320,121 @@ class CaveExplorer(Node):
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
         # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
     
+    # def image_callback(self, image_msg):
+    #     """
+    #     Recieve an RGB image.
+    #     Use this method to detect artifacts of interest.
+        
+    #     A simple method has been provided to begin with for detecting stop signs (which is not what we're actually looking for) 
+    #     adapted from: https://www.geeksforgeeks.org/detect-an-object-with-opencv-python/
+    #     """
+    
+    #     # Copy the image message to a cv image
+    #     # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
+    #     image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
+
+    #     # Create a grayscale version (some simple models use this)
+    #     image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    #     # Retrieve the pre-trained model
+    #     stop_sign_model = self.computer_vision_model_
+
+    #     # Detect artifacts in the image
+    #     # The minSize is used to avoid very small detections that are probably noise
+    #     detections = stop_sign_model.detectMultiScale(image, minSize=(20,20))
+
+    #     # You can set "artifact_found_" to true to signal to "main_loop" that you have found a artifact
+    #     # You may want to communicate more information
+    #     # Since the "image_callback" and "main_loop" methods can run at the same time you should protect any shared variables
+    #     # with a mutex
+    #     # "artifact_found_" doesn't need a mutex because it's an atomic
+    #     num_detections = len(detections)
+        
+
+    #     if num_detections > 0:
+    #         self.artifact_found_ = True
+    #     else:
+    #         self.artifact_found_ = False
+
+    #     # Draw a bounding box rectangle on the image for each detection
+    #     for(x, y, width, height) in detections:
+    #         cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+
+    #     # Publish the image with the detection bounding boxes
+    #     image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
+    #     self.image_detections_pub_.publish(image_detection_message)
+
+
     def image_callback(self, image_msg):
         """
         Recieve an RGB image.
         Use this method to detect artifacts of interest.
         
-        A simple method has been provided to begin with for detecting stop signs (which is not what we're actually looking for) 
-        adapted from: https://www.geeksforgeeks.org/detect-an-object-with-opencv-python/
+        Code integrated based on dev and testing done in the `model_runner` package
         """
-    
-        # Copy the image message to a cv image
-        # see http://wiki.ros.org/cv_bridge/Tutorials/ConvertingBetweenROSImagesAndOpenCVImagesPython
+        self.current_artifacts_in_image_ = [] #reset the list of artifacts in the image
+
+        # Turn received image into cv format
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
-
-        # Create a grayscale version (some simple models use this)
-        image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        # Retrieve the pre-trained model
-        stop_sign_model = self.computer_vision_model_
-
-        # Detect artifacts in the image
-        # The minSize is used to avoid very small detections that are probably noise
-        detections = stop_sign_model.detectMultiScale(image, minSize=(20,20))
-
-        # You can set "artifact_found_" to true to signal to "main_loop" that you have found a artifact
-        # You may want to communicate more information
-        # Since the "image_callback" and "main_loop" methods can run at the same time you should protect any shared variables
-        # with a mutex
-        # "artifact_found_" doesn't need a mutex because it's an atomic
-        num_detections = len(detections)
         
+        # Debug
+        self.get_logger().info('Image received from camera')
+    
+        # Execute computer vision model
+        results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
 
-        if num_detections > 0:
+        if (results):
             self.artifact_found_ = True
-        else:
-            self.artifact_found_ = False
 
-        # Draw a bounding box rectangle on the image for each detection
-        for(x, y, width, height) in detections:
-            cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+        # Process detection
+        for result in results:
+            # Boxes object for bounding box outputs
+            boxes = result.boxes  
 
-        # Publish the image with the detection bounding boxes
+            # Process any detections if they exist
+            #number_of_boxes = len(boxes.xywh)   ####unsure if this is needed as the for loop wont run if theres no results right?
+            #if number_of_boxes > 0:
+                # Get name of detected object
+            for box in boxes:
+                class_id = int(box.cls)    ################## I think this si the artifact type (so for instance, 0 = backpack, 1 = mushroom, etc.)
+                self.current_artifacts_in_image_.append(int(class_id)) #add the current artifact to the list of artifacts in the image
+                self.get_logger().info('class_id: "%s"' % class_id)
+                class_name = self.model.names[class_id] ##unsure what this is then these two varal are where im guessing i get the names from #
+                self.get_logger().info('class_name: "%s"' % class_name)
+
+            # Draw bounding boxes and labels
+            for i in range(len(boxes.xywh)):
+                self.get_logger().info('box: "%s"' % boxes.xywh[i])
+
+                x = int(boxes.xywh[i][0])
+                y = int(boxes.xywh[i][1])
+                width = int(boxes.xywh[i][2])
+                height = int(boxes.xywh[i][3])
+
+                self.get_logger().info('x: "%s"' % x)
+                self.get_logger().info('y: "%s"' % y)
+                self.get_logger().info('width: "%s"' % width)
+                self.get_logger().info('height: "%s"' % height)
+
+                # Draw bounding box
+                cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
+
+                # Add text with class name and confidence score above the bounding box
+                class_id = int(boxes.cls[i])
+                confidence = float(boxes.conf[i])
+                class_name = self.model.names[class_id]
+                label = f"{class_name} {confidence:.2%}"  # Format confidence as percentage
+                cv2.putText(image, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+        # Re-convert processed cv image to ros format
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
+
+        # Publish format
         self.image_detections_pub_.publish(image_detection_message)
 
         #If an artifact is found, switch to inspection mode
         if self.artifact_found_ and self.current_behavior_ != "inspection":
             self.get_logger().info('Artifact found!')
-            self.get_logger().warn(f'Detection: {detections}')
             self.localise_artifact()
     
 
@@ -758,6 +836,7 @@ class CaveExplorer(Node):
 
         """Main decision loop"""
         mode = self.get_parameter('mode').get_parameter_value().string_value.lower()
+        planner_str = self.get_parameter('planner_type').value
 
         self.get_logger().debug(f'Loop running; planner_type = {self.planner_type_}, parameter = {self.get_parameter("planner_type").value}')
 
@@ -767,9 +846,6 @@ class CaveExplorer(Node):
 
         if mode == 'advanced4':
             self.roadmap_update()
-            return
-        
-        planner_str = self.get_parameter('planner_type').value
         
             # If currently inspecting an artifact
         if self.current_behavior_ == "inspection":

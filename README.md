@@ -83,28 +83,42 @@ Initial deployment of YOLO model to environmemt:
 ### Planning 1: Autonomously explore the cave
 - **Goal**: *Robot to explore cave and build map of new areas.*
 - aka reduce the number of unknown/unobserved grids/pixels on the map if that grid/pixel does not have an obstacle and is hence traversable.
-- Ideas:
-    - Frontier based exploration where cells between free space and unknown space are updated as goal which the rover will persue
-    - An 8 second 'timeout' timer has been implemented for unreachable goals which might have been set.
-
-- Topics of interest:
-    - 
-
 
 ### Planning 2: Close-range inspection
 - **Goal**: *Upon detection of an artefacte, pause exploration, generate a path to the artefact and navigate to it.*
 
-  
-  Inital development of Planning 2 and 3:
-  https://youtu.be/jTGBjRziVmM
-- 
-
 ### Planning 3: Behaviour switching
 - **Goal**: *Alternate between exploration and inspection. Inspect new artefacts whilst not inspecting already inspected artefacts.*
+
+I have Implimented a few new functions and variables into the code.
+ - a list of artifacts we want to search (as the assignemnt brief says the arficats we can reliably detect)
+ - a list for the artifacts we have inspected (this will only get added to if the artifact was already in the list of things we want to search)
+ - we can add to the already there artifacts location list and then publish the new maker for it after planer 2 is developed. 
+ - two variables for timeout and fallback
+
+ Thinking i may neeed to add a list tht keeps track of the position of the artifacts we have scanned so we dont try to redo them. We also need to figure out how to get it to once its done scanning turn and keep autonomously searching (this is more a problem for planning 2 though)
 
 ### Advanced 1: Robust perception
 - **Goal**: *Extend your solution and analysis from Perception 1-3 for environments with additional perceptual challenges. Apply degrading visual effects to the images received in cave_explorer.py, then feed these degraded images into your computer vision pipeline.*
 - Aim is to simulate Martian conditions. Examples include dust, poor lighting, low-quality cameras, dirty lenses, or motion blur.
+
+Added in a variety of effects which can be added:
+ * "none" : no effect
+ * "blur" : median blur filter
+ * "dust" : salt and pepper noise to simulate dust
+ * "motion_blur" : motion blur filter
+ * "low_light" : simulating low light conditions
+ * "low_res" : reducing image resolution
+  
+
+
+
+This is how to set the parameters you can change for advanced 1 
+ * ros2 param set /camera_processor effect dust (any of the names listed above)
+ * ros2 param set /camera_processor severity 2 (0-3)
+ * ros2 param set /camera_processor save_every_n 0 (0-inf)
+
+ The level of severity can be anything between 0-3, only the values 1-3 have any effect on the image. If the severity is set to 0 the image will be returned with no effect to it.
 
 ### Advanced 2: Cave geometry analysis
 - **Goal**: *Extend your system to perform online analysis of cave geometry while exploring. Automatically identify regions of interest such as the widest open areas (potentially suitable for future human habitation) and narrow passages (critical for navigation and hazard assessment).*
@@ -114,6 +128,15 @@ Initial deployment of YOLO model to environmemt:
 
 ### Advanced 4: Online roadmap construction
 - **Goal**: *Build a navigation roadmap online as the robot explores the Martian cave.*
+
+need to run the launch, then navigate, then the autonomy file. Then you must set the mode paameter with this line:
+ * ros2 param set /cave_explorer_node mode advanced4
+ Otherwise it defaults to just explorering normally and will not publish markers
+
+ if you dont want to launch the autonomy thing and drive it around yourself. launch the gazebo launch file. then the navigate file. Then run this line:
+  * ros2 run cave_explorer cave_explorer --ros-args -p mode:=advanced4
+Then this so you can move the robot around manually:
+   * ros2 run teleop_twist_keyboard teleop_twist_keyboard
 
 ### Advanced 5: Persistent monitoring
 - **Goal**: *Repeatedly visit a set of key points in the environment.*

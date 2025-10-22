@@ -12,7 +12,6 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
 
     ld = LaunchDescription()
-
     config_path = [FindPackageShare('cave_explorer'), 'config']
     
     # Additional command line arguments
