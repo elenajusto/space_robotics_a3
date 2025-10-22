@@ -98,8 +98,9 @@ class CaveExplorer(Node):
 
         # Subscribe to the map topic to get current bounds
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
-
-        # Image processing
+        
+        # Create a timer to call main_loop periodically (every 1 second)
+        self.timer_ = self.create_timer(1.0, self.main_loop)
 
         # Initialise CvBridge
         self.cv_bridge_ = CvBridge()
@@ -176,19 +177,20 @@ class CaveExplorer(Node):
         # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
  
     def image_callback(self, image_msg):
-        
-        # Debug
-        self.get_logger().info('Image received from camera')
-    
-        # Turn received image into cv format
-        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
-        
-        # Draw red circle at image center 
-        cv2.circle(image, ( self.center_x , self.center_y), 5, (255, 0, 0), -1) 
-        cv2.putText(image,"center", ( self.center_x , self.center_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
 
         # Only process new detections if artefact has not beet detected
         if self.artifact_found_ == False:
+
+            # Debug
+            self.get_logger().info('Image received from camera')
+        
+            # Turn received image into cv format
+            image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
+            
+            # Draw red circle at image center 
+            cv2.circle(image, ( self.center_x , self.center_y), 5, (255, 0, 0), -1) 
+            cv2.putText(image,"center", ( self.center_x , self.center_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
+
             # Execute computer vision model
             results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
 
@@ -251,6 +253,11 @@ class CaveExplorer(Node):
         else:
             return
 
+    def planner_inspection(self, artefact: Artefact):
+
+        # Debug
+        self.get_logger().info('Execute inspection of artefact')
+        pass
 
     def localise_artifact(self):
         """
@@ -431,7 +438,7 @@ class CaveExplorer(Node):
         self.get_pose_2d()
     
         # Debug - State of tracking
-        self.get_logger().info(f"State of tracking: {self.artefact_detected}")
+        self.get_logger().info(f"State of tracking: {self.artifact_found_}")
 
         # Debug - Artefact list
         self.get_logger().info('Current artefacts:')
@@ -451,7 +458,7 @@ class CaveExplorer(Node):
 
         # Check if previous goal still running
         if not self.ready_for_next_goal_:
-            # self.get_logger().info(f'Previous goal still running')
+            self.get_logger().info(f'Previous goal still running')
             return
 
         self.ready_for_next_goal_ = False
@@ -490,8 +497,6 @@ class CaveExplorer(Node):
         else:
             self.get_logger().error('No valid planner selected')
             self.destroy_node()
-
-
         #######################################################
 
 def main():
