@@ -259,22 +259,61 @@ class CaveExplorer(Node):
         self.get_logger().info('Execute inspection of artefact')
 
         # Assuming the robot has stopped moving
+        current_location = self.get_pose_2d()
+        
+        # Arbitrary rotation value
+        rotation_factor = 0.001
 
         # Get the offset of the artefact from the center
         self.get_logger().info(f"Offset: {artefact.offset}")
 
         # Check how to adjust centering
         if artefact.offset < -50:
+
+            # Debug
             self.get_logger().info(f"Vectoring to the left")
+
+            # TODO - Create a direction vector
+            rotation_angle = abs(artefact.offset) * rotation_factor
+            rotation_angle = wrap_angle(current_location.theta + rotation_angle)
+
+            direction = Pose2D()
+            direction.x = current_location.x
+            direction.y = current_location.y
+            direction.theta = rotation_angle
+
+            self.get_logger().info(f"Rotation vector {direction}")    
+
+            # TODO - Call planner to rotation
+
         elif artefact.offset > 50:
+
+            # Debug
             self.get_logger().info(f"Vectoring to the right")
+            
+            # TODO - Create a direction vector
+            rotation_angle = abs(artefact.offset) * rotation_factor
+            rotation_angle = wrap_angle(current_location.theta - rotation_angle)
+
+            direction = Pose2D()
+            direction.x = current_location.x
+            direction.y = current_location.y
+            direction.theta = rotation_angle
+
+            self.get_logger().info(f"Rotation vector {direction}")    
+
+
+            # TODO - Call planner to rotation
+
         else:
             self.get_logger().info(f"Artefact centered within acceptable range")
             # TODO - Call planner to move forward
 
             # TODO - Estimate location of artefact a few meters forward
 
+
         # TODO - Call to Camera Vision Model
+        
         # TODO - Get updatated offset
     
 
