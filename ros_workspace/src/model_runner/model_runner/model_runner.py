@@ -44,7 +44,7 @@ class ModelRunnerNode(Node):
         self.artefact_list = None
         
         # Subscribe to RGB camera
-        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
+        self.image_sub_ = self.create_subscription(Image, 'camera/image_after', self.image_callback, 20)
 
         # Subscribe to camera intrinsics and extrinsics
         self.camera_info_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.save_intrinsics, 10)
