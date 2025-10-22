@@ -53,6 +53,15 @@ class PlannerType(Enum):
     RANDOM_GOAL = 5
     # Add more!
 
+class Artefact:
+    def __init__(self, objectType: str, offset: int, tracking: bool, localised: bool, estimated_location: Pose2D, detected_location: Pose2D):
+        self.objectType = objectType
+        self.offset = offset
+        self.tracking = tracking
+        self.localised = localised
+        self.estimated_location = estimated_location
+        self.detected_location = detected_location
+
 class CaveExplorer(Node):
     def __init__(self):
         super().__init__('cave_explorer_node')
@@ -119,14 +128,30 @@ class CaveExplorer(Node):
         self.map_sub_ = self.create_subscription(OccupancyGrid, 'map',  self.map_callback, 1)
 
         # Image processing
-        # self.cv_bridge_ = CvBridge()
-        # self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)            # Publish artefact detections to the visualiser thingy
-        # model_path = "src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory        
-        # self.model = YOLO(model_path)                                                               # Define YOLO model being used
-        # self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)  # Listen to camera sensor
 
-        # Timer for main loop
-        self.main_loop_timer_ = self.create_timer(0.2, self.main_loop)
+        # Initialise CvBridge
+        self.cv_bridge_ = CvBridge()
+
+        # Initialise the YOLO model
+        model_path = "src/model_runner/models/model_1/my_model.pt"  # Relative to your current working directory        
+        self.model = YOLO(model_path)
+
+        # Initiliise image paramters
+        self.center_x = 360 # Hardcoded
+        self.center_y = 240 # Hardcoded
+        
+        # Initiliise Robot state
+        self.current_pose = Pose2D        
+        
+        # Initiliise Artefact tracking
+        self.artefact_detected = False      # will serve as tracking flag
+        self.artefact_list = None
+        
+        # Subscribe to RGB camera
+        self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
+
+        # Publisher of annotated images
+        self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
     
     def get_pose_2d(self):
         """Get the 2d pose of the robot"""
@@ -177,75 +202,76 @@ class CaveExplorer(Node):
         # self.get_logger().warn('Map received:')
         # self.get_logger().warn(f'  xlim = [{self.xlim_[0]:.2f}, {self.xlim_[1]:.2f}]')
         # self.get_logger().warn(f'  ylim = [{self.ylim_[0]:.2f}, {self.ylim_[1]:.2f}]')
-    
+ 
     def image_callback(self, image_msg):
-        """
-        Recieve an RGB image.
-        Use this method to detect artifacts of interest.
-        
-        Code integrated based on dev and testing done in the `model_runner` package
-        """
-        # Turn received image into cv format
-        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
         
         # Debug
         self.get_logger().info('Image received from camera')
     
+        # Turn received image into cv format
+        image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
+        
+        # Draw red circle at image center 
+        cv2.circle(image, ( self.center_x , self.center_y), 5, (255, 0, 0), -1) 
+        cv2.putText(image,"center", ( self.center_x , self.center_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
+
         # Execute computer vision model
         results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
 
-        if (results):
-            self.artifact_found_ = True
-
         # Process detection
         for result in results:
-            # Boxes object for bounding box outputs
-            boxes = result.boxes  
-
-            # Process any detections if they exist
+            # Process computer vision model results
+            boxes = result.boxes                            
             number_of_boxes = len(boxes.xywh)
             if number_of_boxes > 0:
-                # Get name of detected object
-                for box in boxes:
-                    class_id = int(box.cls)
-                    class_name = self.model.names[class_id]
-                    self.get_logger().info('class_name: "%s"' % class_name)
-
-                # Draw bounding boxes and labels
+                # Process given box and allocate to an artefact
                 for i in range(number_of_boxes):
-                    self.get_logger().info('box: "%s"' % boxes.xywh[i])
-
-                    x = int(boxes.xywh[i][0])
-                    y = int(boxes.xywh[i][1])
-                    width = int(boxes.xywh[i][2])
-                    height = int(boxes.xywh[i][3])
-
-                    self.get_logger().info('x: "%s"' % x)
-                    self.get_logger().info('y: "%s"' % y)
-                    self.get_logger().info('width: "%s"' % width)
-                    self.get_logger().info('height: "%s"' % height)
-
-                    # Draw bounding box
-                    cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
-
-                    # Add text with class name and confidence score above the bounding box
                     class_id = int(boxes.cls[i])
-                    confidence = float(boxes.conf[i])
                     class_name = self.model.names[class_id]
-                    label = f"{class_name} {confidence:.2%}"  # Format confidence as percentage
-                    cv2.putText(image, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    confidence = float(boxes.conf[i])
+                    object_image_x = int(boxes.xywh[i][0])
+                    object_image_y = int(boxes.xywh[i][1])
+                    
+                    # Create dot on detected object
+                    cv2.circle(image, (object_image_x, object_image_y), 5, (0, 255, 0), -1)
+                    
+                    # Draw arrow from center of camera to detected object
+                    cv2.arrowedLine(image, (self.center_x, self.center_y), (object_image_x, object_image_y), (0, 255, 0), 2, cv2.LINE_AA, tipLength=0.2) 
+                    
+                    # Get offset between image center and artefact (horizontal distance in pixels)
+                    offset = object_image_x - self.center_x
 
+                    # Add labels 
+                    label = f"{class_name} {confidence:.2%}"
+                    cv2.putText(image, label, (object_image_x, object_image_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+                    # Create artefact object
+                    newArtefact = Artefact(class_name, offset, False, False, Pose2D(), Pose2D())
+                    
+                    # Debug offset information
+                    self.get_logger().info(f'Artefact offset from center: {offset} pixels')
+
+                    # Update detected artefact's parameters
+                    newArtefact.detected_location = self.current_pose
+                    newArtefact.tracking = True
+                    newArtefact.localised = False
+
+
+                    # Debug Information on the artefact
+                    self.get_logger().info(f'Artefact Type: {newArtefact.objectType}')
+                    self.get_logger().info(f'Artefact Offset: {newArtefact.offset}')
+                    self.get_logger().info(f'Artefact detection x: {newArtefact.detected_location.x}')
+                    self.get_logger().info(f'Artefact detection y: {newArtefact.detected_location.y}')
+                    self.get_logger().info(f'Artefact detection theta: {newArtefact.detected_location.theta}')
+
+                    self.planner_go_to_pose2d(self.get_pose_2d());
+                                
         # Re-convert processed cv image to ros format
         image_detection_message = self.cv_bridge_.cv2_to_imgmsg(image, encoding="rgb8")
 
-        # Publish format
+        # Publish annotated image back to ros
         self.image_detections_pub_.publish(image_detection_message)
 
-        # Set flags
-        if self.artifact_found_:
-            self.get_logger().info('Artifact found!')
-            # TODO: Debug - Temporairly disable localisation
-            # self.localise_artifact() 
 
     def localise_artifact(self):
         """
