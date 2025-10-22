@@ -116,3 +116,6 @@ On the backend I made a new data structure to represent an artefact and am worki
 
 ![localisation_dsa.png](images/localisation_dsa.png)
 
+### Center Guide
+Here is image demonstating a debug feature for centering the camera to the object that has been detected:
+![center_guide.png](images/center_guide.png)
