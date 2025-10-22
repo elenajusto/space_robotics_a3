@@ -69,7 +69,7 @@ class CaveExplorer(Node):
     def __init__(self):
         super().__init__('cave_explorer_node')
 
-        self.declare_parameter('mode', 'advanced4') #THIS SHOULD HAVE ADVANCED 4, PLANNER 1, 2, 3 (OR WHATEVER WE CALL THEM)
+        self.declare_parameter('mode', 'planning') #THIS SHOULD HAVE ADVANCED 4, PLANNER 1, 2, 3 (OR WHATEVER WE CALL THEM)
         # ===== Advanced 4: Online Roadmap Construction =====
         self.declare_parameter('roadmap_node_spacing', 0.4)   # meters between added nodes
         self.declare_parameter('roadmap_knn_k', 3)            # connect to K nearest neighbors
@@ -133,49 +133,9 @@ class CaveExplorer(Node):
 
         # Marker for artifact locations
         # See https://wiki.ros.org/rviz/DisplayTypes/Marker
-        self.marker_artifacts_ = Marker()
-        self.marker_artifacts_.header.frame_id = "map"
-        self.marker_artifacts_.ns = "artifacts"
-        self.marker_artifacts_.id = 0
-        self.marker_artifacts_.type = Marker.SPHERE_LIST
-        self.marker_artifacts_.action = Marker.ADD
-        self.marker_artifacts_.pose.position.x = 0.0
-        self.marker_artifacts_.pose.position.y = 0.0
-        self.marker_artifacts_.pose.position.z = 0.0
-        self.marker_artifacts_.pose.orientation.x = 0.0
-        self.marker_artifacts_.pose.orientation.y = 0.0
-        self.marker_artifacts_.pose.orientation.z = 0.0
-        self.marker_artifacts_.pose.orientation.w = 1.0
-        self.marker_artifacts_.scale.x = 1.5
-        self.marker_artifacts_.scale.y = 1.5
-        self.marker_artifacts_.scale.z = 1.5
-        self.marker_artifacts_.color.a = 1.0
-        self.marker_artifacts_.color.r = 0.0
-        self.marker_artifacts_.color.g = 1.0
-        self.marker_artifacts_.color.b = 0.2
-        self.marker_pub_ = self.create_publisher(MarkerArray, 'marker_array_artifacts', 10)
 
-        self.inspected_marker_artifacts_ = Marker()
-        self.inspected_marker_artifacts_.header.frame_id = "map"
-        self.inspected_marker_artifacts_.ns = "inspected_artifacts"
-        self.inspected_marker_artifacts_.id = 0
-        self.inspected_marker_artifacts_.type = Marker.SPHERE_LIST
-        self.inspected_marker_artifacts_.action = Marker.ADD
-        self.inspected_marker_artifacts_.pose.position.x = 0.0
-        self.inspected_marker_artifacts_.pose.position.y = 0.0
-        self.inspected_marker_artifacts_.pose.position.z = 0.0
-        self.inspected_marker_artifacts_.pose.orientation.x = 0.0
-        self.inspected_marker_artifacts_.pose.orientation.y = 0.0
-        self.inspected_marker_artifacts_.pose.orientation.z = 0.0
-        self.inspected_marker_artifacts_.pose.orientation.w = 1.0
-        self.inspected_marker_artifacts_.scale.x = 1.5
-        self.inspected_marker_artifacts_.scale.y = 1.5
-        self.inspected_marker_artifacts_.scale.z = 1.5
-        self.inspected_marker_artifacts_.color.a = 1.0
-        self.inspected_marker_artifacts_.color.r = 1.0
-        self.inspected_marker_artifacts_.color.g = 0.0
-        self.inspected_marker_artifacts_.color.b = 0.2
-
+        self.marker_pub_ = self.create_publisher(MarkerArray, 'marker_array_artifacts', 10) # Creat publisher for marker array, but new marker is created for each location
+        self.marker_artifacts_array = []
 
         # Remember the artifact locations
         # Array of type geometry_msgs.Point
@@ -207,7 +167,7 @@ class CaveExplorer(Node):
         model_path = "/home/eleanorlow/spcrob/team_project/space_robotics_a3/ros_workspace/src/model_runner/models/model_1/my_model.pt"                                  # NOTE: Relative to your current working directory
         self.model = YOLO(model_path)                                                               # Define YOLO model being used
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 1)  # Listen to camera sensor
-
+        self.current_image_id = 0
 
         # # Prepare image processing and subscribe to image detection to get artifact information
         # self.image_detections_pub_ = self.create_publisher(Image, 'detections_image', 1)
@@ -238,7 +198,7 @@ class CaveExplorer(Node):
         self.inspected_artifacts_ = []  # store inspected artifact map coords
         self.selected_artifact_ = None  # currently targeted artifact
         self.standoff_distance_ = 3  # distance to stay away from artifact 
-        self.inspection_duplicate_distance_ = 1.0  # don't inspect same artifact if within this distance
+        self.inspection_duplicate_distance_ = 4.0  # don't inspect same artifact if within this distance
 
         # Stores the active nav2 goal handle so we can cancel
         self.current_goal_handle_ = None
@@ -378,7 +338,7 @@ class CaveExplorer(Node):
         image = self.cv_bridge_.imgmsg_to_cv2(image_msg, desired_encoding='passthrough')
         
         # Debug
-        self.get_logger().info('Image received from camera')
+        # self.get_logger().info('Image received from camera')
     
         # Execute computer vision model
         results = self.model(image, stream=True, conf=0.5)  # Configure to detect when confidence > 50%
@@ -398,9 +358,10 @@ class CaveExplorer(Node):
             for box in boxes:
                 class_id = int(box.cls)    ################## I think this si the artifact type (so for instance, 0 = backpack, 1 = mushroom, etc.)
                 self.current_artifacts_in_image_.append(int(class_id)) #add the current artifact to the list of artifacts in the image
-                self.get_logger().info('class_id: "%s"' % class_id)
+                # self.get_logger().info('class_id: "%s"' % class_id)
                 class_name = self.model.names[class_id] ##unsure what this is then these two varal are where im guessing i get the names from #
-                self.get_logger().info('class_name: "%s"' % class_name)
+                # self.get_logger().info('class_name: "%s"' % class_name)
+                self.current_image_id = class_id
 
             # Draw bounding boxes and labels
             for i in range(len(boxes.xywh)):
@@ -411,10 +372,10 @@ class CaveExplorer(Node):
                 width = int(boxes.xywh[i][2])
                 height = int(boxes.xywh[i][3])
 
-                self.get_logger().info('x: "%s"' % x)
-                self.get_logger().info('y: "%s"' % y)
-                self.get_logger().info('width: "%s"' % width)
-                self.get_logger().info('height: "%s"' % height)
+                # self.get_logger().info('x: "%s"' % x)
+                # self.get_logger().info('y: "%s"' % y)
+                # self.get_logger().info('width: "%s"' % width)
+                # self.get_logger().info('height: "%s"' % height)
 
                 # Draw bounding box
                 cv2.rectangle(image, (x, y), (x + height, y + width), (0, 255, 0), 5)
@@ -434,19 +395,21 @@ class CaveExplorer(Node):
 
         #If an artifact is found, switch to inspection mode
         if self.artifact_found_ and self.current_behavior_ != "inspection":
-            self.get_logger().info('Artifact found!')
             self.localise_artifact()
     
 
 
     def plan_inspection_goal(self):
         """Generate and send a close-range (standoff) goal near the selected artifact."""
+
+        artifact_point = self.selected_artifact_
+
         if not self.selected_artifact_:
             self.get_logger().warn("plan_inspection_goal: no selected artifact Switching back to exploration.")
             self.current_behavior_ = "exploration"
             return
 
-        artifact_point = self.selected_artifact_
+        
         robot_pose = self.get_pose_2d()
         if robot_pose is None:
             self.get_logger().warn("No robot pose available for inspection. Switching back to exploration")
@@ -533,13 +496,11 @@ class CaveExplorer(Node):
         except Exception:
             pass
         self.get_logger().info("Inspection complete. Marking artifact inspected and resuming exploration.")
-
+        self.publish_artifact_markers()
         # Mark artifact inspected (avoid duplicates)
         if self.selected_artifact_ is not None:
             self.inspected_artifacts_.append(self.selected_artifact_)
 
-        # publish updated markers
-        self.publish_inspected_artifact_markers()
         # remove it from artifact_locations_ if present
         try:
             if self.selected_artifact_ in self.artifact_locations_:
@@ -599,35 +560,33 @@ class CaveExplorer(Node):
         # Compute the location of the artifact
         # This is currently INCOMPLETE
         point = Point()
-        # point.x = robot_pose.x + 2 
-        # point.y = robot_pose.y + 2
-        point.x = 18.1 # Forcing a fake location for artifacts
-        point.y = 6.6 
-        point.z = 1.0
+        point.x = robot_pose.x + 5
+        point.y = robot_pose.y + 5
+        # point.x = 18.1 # Forcing a fake location for artifacts
+        # point.y = 6.6 
+        # point.z = 1.0
         
 
         skip_artifact = False
 
         # check duplicates to not inspect artifatcs already inspected
         for a in self.inspected_artifacts_:
-            # if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
-            if point == a:
+            if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
+            # if point == a:
                 self.get_logger().info("Detected artifact already inspected. Skipping artifact.")  
-                self.publish_inspected_artifact_markers()
                 skip_artifact = True
                 return
 
         #Will add to locations
         for a in self.artifact_locations_:
-            # if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
-            if point == a:
+            if math.hypot(a.x - point.x, a.y - point.y) < self.inspection_duplicate_distance_:
+            # if point == a:
                 self.get_logger().info("Artifact already recorded. Skipping artifact.")
                 skip_artifact = True
                 return
 
         # Save approx artifact location and publish markers
-        
-        self.publish_artifact_markers()
+        # self.publish_artifact_markers()
         
 
         # select this artifact to inspect and plan approach
@@ -640,31 +599,105 @@ class CaveExplorer(Node):
             self.get_logger().info("New artifact detect, switching to inspection mode.")
             self.plan_inspection_goal()
 
-
     def publish_artifact_markers(self):
-        """ Publish the artifact location markers"""
+        """Publish all detected artifact markers with colors by class type."""
 
-        # Update the locations
-        self.marker_artifacts_.points = self.artifact_locations_
+        # Creating new marker
+        marker = Marker()
+        marker.header.frame_id = "map"
+        marker.ns = "artifacts"
+        marker.id = len(self.marker_artifacts_array)
+        marker.type = Marker.SPHERE_LIST
+        marker.action = Marker.ADD
+        marker.scale.x = 1.0
+        marker.scale.y = 1.0
+        marker.scale.z = 1.0
+        marker.pose.orientation.w = 1.0
 
-        # Create and publish the MarkerArray
-        marker_array = MarkerArray()
-        marker_array.markers = [self.marker_artifacts_]
-        self.marker_pub_.publish(marker_array)
-        self.publish_inspected_artifact_markers()
-        
-        
-    
-    def publish_inspected_artifact_markers(self): # Inspected artifacts will be Red
-        """ Publish the artifact location markers"""
+        # Assigning colour depending on artifact type
+        color_map = {
+            0: (1.0, 0.0, 0.0),  # red
+            1: (0.0, 1.0, 0.0),  # green
+            2: (0.0, 0.0, 1.0),  # blue
+            3: (1.0, 1.0, 0.0),  # yellow
+            4: (1.0, 0.0, 1.0),  # magenta
+            5: (0.0, 1.0, 1.0),  # cyan
+        }
 
-        # Update the locations
-        self.inspected_marker_artifacts_.points = self.inspected_artifacts_
+        r, g, b = color_map.get(self.current_image_id, (1.0, 1.0, 1.0))
+        marker.color.r = r
+        marker.color.g = g
+        marker.color.b = b
+        marker.color.a = 1.0
 
-        # Create and publish the MarkerArray
-        marker_array = MarkerArray()
-        marker_array.markers = [self.inspected_marker_artifacts_]
-        self.marker_pub_.publish(marker_array)
+        # Add artifact position
+        marker.points = [self.selected_artifact_]
+
+        # Add to the array and publish
+        self.marker_artifacts_array.append(marker)
+
+        marker_array_msg = MarkerArray()
+        marker_array_msg.markers = self.marker_artifacts_array
+        self.marker_pub_.publish(marker_array_msg)
+        self.get_logger().info(f"Published artifact marker (id={marker.id}, color=({r:.1f},{g:.1f},{b:.1f}))")
+
+
+
+    # def publish_artifact_markers(self):
+    #     """ Publish the artifact location markers"""
+
+    #     marker_artifacts_ = Marker()
+    #     marker_artifacts_.header.frame_id = "map"
+    #     marker_artifacts_.ns = "artifacts"
+    #     marker_artifacts_.id = 0
+    #     marker_artifacts_.type = Marker.SPHERE_LIST
+    #     marker_artifacts_.action = Marker.ADD
+    #     marker_artifacts_.pose.position.x = 0.0
+    #     marker_artifacts_.pose.position.y = 0.0
+    #     marker_artifacts_.pose.position.z = 0.0
+    #     marker_artifacts_.pose.orientation.x = 0.0
+    #     marker_artifacts_.pose.orientation.y = 0.0
+    #     marker_artifacts_.pose.orientation.z = 0.0
+    #     marker_artifacts_.pose.orientation.w = 1.0
+    #     marker_artifacts_.scale.x = 1.5
+    #     marker_artifacts_.scale.y = 1.5
+    #     marker_artifacts_.scale.z = 1.5
+
+    #     if self.current_image_id == 1:
+    #         marker_artifacts_.color.a = 1.0
+    #         marker_artifacts_.color.r = 0.0
+    #         marker_artifacts_.color.g = 1.0
+    #         marker_artifacts_.color.b = 0.2
+
+    #     elif self.current_image_id == 2:
+    #         marker_artifacts_.color.a = 1.0
+    #         marker_artifacts_.color.r = 0.0
+    #         marker_artifacts_.color.g = 1.0
+    #         marker_artifacts_.color.b = 0.2
+            
+    #     elif self.current_image_id == 3:
+    #         marker_artifacts_.color.a = 1.0
+    #         marker_artifacts_.color.r = 1.0
+    #         marker_artifacts_.color.g = 0.5
+    #         marker_artifacts_.color.b = 0.0
+            
+    #     elif self.current_image_id == 4:
+    #         marker_artifacts_.color.a = 1.0
+    #         marker_artifacts_.color.r = 0.5
+    #         marker_artifacts_.color.g = 0.5
+    #         marker_artifacts_.color.b = 0.5
+
+    #     marker_artifacts_.points = [self.selected_artifact_]
+
+
+    #     # self.marker_artifacts_array.append(marker_artifacts_)
+    #     # self.marker_pub.publish(self.marker_artifacts_array)
+
+
+    #     # # Create and publish the MarkerArray
+    #     # marker_array = MarkerArray()
+    #     # marker_array.markers = [marker_artifacts_]
+    #     self.marker_pub_.publish(self.marker_artifacts_array)
 
     def planner_go_to_pose2d(self, pose2d, force: bool = False):
         """Go to a provided 2d pose"""
