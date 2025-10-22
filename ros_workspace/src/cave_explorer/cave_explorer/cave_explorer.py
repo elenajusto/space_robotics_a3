@@ -51,7 +51,7 @@ class PlannerType(Enum):
     GO_TO_FIRST_ARTIFACT = 3
     RANDOM_WALK = 4
     RANDOM_GOAL = 5
-    # Add more!
+    INSPECTION = 6
 
 class Artefact:
     def __init__(self, objectType: str, offset: int, tracking: bool, localised: bool, estimated_location: Pose2D, detected_location: Pose2D):
@@ -118,7 +118,8 @@ class CaveExplorer(Node):
         
         # Initiliise Artefact tracking
         self.artifact_found_ = False
-        self.artifact_locations_ = []
+        self.artifact_locations_ = []   
+        self.index_of_artefact_to_track = None
         
         # Subscribe to RGB camera
         self.image_sub_ = self.create_subscription(Image, 'camera/image', self.image_callback, 20)
@@ -254,9 +255,11 @@ class CaveExplorer(Node):
             return
 
     def planner_inspection(self, artefact: Artefact):
-
         # Debug
         self.get_logger().info('Execute inspection of artefact')
+
+        # Robot to stop moving
+        
         pass
 
     def localise_artifact(self):
@@ -445,17 +448,25 @@ class CaveExplorer(Node):
         for item in self.artifact_locations_:
             self.get_logger().info(f'Artefact: Type={item.objectType}, Offset={item.offset}, Tracking={item.tracking}, Localised={item.localised}')
 
+        # Debug - Configure inspection testing
+        if self.artifact_found_ == True:
+            # Go through artefact list
+            for index, artefact in enumerate(self.artifact_locations_):
+
+                # Open item in artefact list
+                if artefact.localised == True:
+                    break
+
+                # If not localised then asssign this artefact index to the one to track
+                else:
+                    self.index_of_artefact_to_track = index
+                    break
+
         # Don't do anything until SLAM is launched
-        if not self.tf_buffer.can_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()):
+        if not self.tf_buffer.can_transform('map','base_link', rclpy.time.Time()):
             self.get_logger().warn('Waiting for transform... Have you launched a SLAM node?')
             return
-
-        #######################################################
-        # Update flags related to the progress of the current planner
-
+        
         # Check if previous goal still running
         if not self.ready_for_next_goal_:
             self.get_logger().info(f'Previous goal still running')
@@ -463,41 +474,55 @@ class CaveExplorer(Node):
 
         self.ready_for_next_goal_ = False
 
-        if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
-            self.get_logger().info('Successfully reached first artifact!')
-            self.reached_first_artifact_ = True
-        if self.planner_type_ == PlannerType.RETURN_HOME:
-            self.get_logger().info('Successfully returned home!')
-            self.returned_home_ = True
+        # TODO - Comment out template code
+        # if self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
+        #     self.get_logger().info('Successfully reached first artifact!')
+        #     self.reached_first_artifact_ = True
 
-        #######################################################
-        # Select the next planner to execute
-        # Update this logic as you see fit!
-        if not self.reached_first_artifact_:
-            self.planner_type_ = PlannerType.GO_TO_FIRST_ARTIFACT
-        elif not self.returned_home_:
-            self.planner_type_ = PlannerType.RETURN_HOME
-        else:
-            self.planner_type_ = PlannerType.RANDOM_GOAL
+        # if self.planner_type_ == PlannerType.RETURN_HOME:
+        #     self.get_logger().info('Successfully returned home!')
+        #     self.returned_home_ = True
 
-        #######################################################
+        # TODO - Comment out template code
+        # if not self.reached_first_artifact_:
+        #     self.planner_type_ = PlannerType.GO_TO_FIRST_ARTIFACT
+
+        # elif not self.returned_home_:
+        #     self.planner_type_ = PlannerType.RETURN_HOME
+
+        # else:
+        #     self.planner_type_ = PlannerType.RANDOM_GOAL
+
+        # TODO - Test inspection
+        if self.artifact_found_ == True:
+            self.planner_type_ = PlannerType.INSPECTION
+
         # Execute the planner by calling the relevant method
-        # Add your own planners here!
         self.get_logger().info(f'Calling planner: {self.planner_type_.name}')
+
         if self.planner_type_ == PlannerType.MOVE_FORWARDS:
             self.planner_move_forwards(10)
+
         elif self.planner_type_ == PlannerType.GO_TO_FIRST_ARTIFACT:
             self.planner_go_to_first_artifact()
+
         elif self.planner_type_ == PlannerType.RETURN_HOME:
             self.planner_return_home()
+
         elif self.planner_type_ == PlannerType.RANDOM_WALK:
             self.planner_random_walk()
+            
         elif self.planner_type_ == PlannerType.RANDOM_GOAL:
             self.planner_random_goal()
+
+        elif self.planner_type_ == PlannerType.INSPECTION:
+
+            # Pass the artefact in the list whose index we saved
+            self.planner_inspection( self.artifact_locations_[self.index_of_artefact_to_track] )                          
+
         else:
             self.get_logger().error('No valid planner selected')
-            self.destroy_node()
-        #######################################################
+            # self.destroy_node()
 
 def main():
     # Initialise
